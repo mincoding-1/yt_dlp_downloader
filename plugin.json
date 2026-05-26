@@ -1,0 +1,30 @@
+{
+  "name": "yt_dlp_downloader",
+  "version": "1.0.0",
+  "entrypoint": "main.py",
+  "timeout": 10,
+  "capabilities": [
+    "idempotent"
+  ],
+  "input_schema": {
+    "type": "object",
+    "required": [
+      "url",
+      "output_path"
+    ],
+    "properties": {
+      "url": {
+        "type": "string",
+        "description": "url field"
+      },
+      "output_path": {
+        "type": "string",
+        "description": "output_path field"
+      }
+    }
+  },
+  "example_payload": {
+    "url": "example",
+    "output_path": "example"
+  }
+}

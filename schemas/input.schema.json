@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "fields": [
+    {
+      "key": "url",
+      "type": "string",
+      "label": "url",
+      "required": true
+    },
+    {
+      "key": "output_path",
+      "type": "string",
+      "label": "output_path",
+      "required": true
+    }
+  ]
+}
