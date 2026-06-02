@@ -15,16 +15,29 @@
             },
             "output_path": {
                 "type": "string",
-                "description": "저장 경로"
+                "description": "저장 디렉터리. /var/lib/hanis/downloads 아래만 허용"
+            },
+            "output_template": {
+                "type": "string",
+                "description": "yt-dlp 파일명 템플릿. 경로 구분자와 .. 금지"
             },
             "timeout": {
                 "type": "integer",
                 "description": "다운로드 제한 시간(초, 최대 3600)"
+            },
+            "metadata_only": {
+                "type": "boolean",
+                "description": "다운로드하지 않고 메타데이터만 조회"
+            },
+            "allow_playlist": {
+                "type": "boolean",
+                "description": "playlist 다운로드 허용"
             }
         }
     },
     "example_payload": {
         "url": "https://media.w3.org/2010/05/sintel/trailer.mp4",
-        "output_path": "/var/lib/hanis/downloads/yt_dlp_downloader"
+        "output_path": "/var/lib/hanis/downloads/yt_dlp_downloader",
+        "output_template": "%(title).200B [%(id)s].%(ext)s"
     }
 }

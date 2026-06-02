@@ -1,1 +1,7 @@
-{}
+{
+  "output_path": "/var/lib/hanis/downloads/yt_dlp_downloader",
+  "output_template": "%(title).200B [%(id)s].%(ext)s",
+  "timeout": 1800,
+  "metadata_only": false,
+  "allow_playlist": false
+}

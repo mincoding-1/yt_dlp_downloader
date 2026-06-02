@@ -1,5 +1,50 @@
-<!-- Hanis Plugin Custom UI -->
-<div>
-  <p>플러그인 고유 UI 영역입니다. HanisUI postMessage API를 통해 Hanis Core와 통신할 수 있습니다.</p>
-  <p>사용 가능한 이벤트: HANIS_RUN_PLUGIN, HANIS_SAVE_CONFIG, HANIS_GET_CONFIG, HANIS_GET_RECENT_JOBS, HANIS_GET_LOG</p>
-</div>
+<form id="yt-dlp-form" style="display:grid;gap:10px;max-width:720px">
+  <label>
+    URL
+    <input name="url" type="url" required placeholder="https://media.w3.org/2010/05/sintel/trailer.mp4" style="width:100%">
+  </label>
+  <label>
+    Output directory
+    <input name="output_path" type="text" value="/var/lib/hanis/downloads/yt_dlp_downloader" style="width:100%">
+  </label>
+  <label>
+    Filename template
+    <input name="output_template" type="text" value="%(title).200B [%(id)s].%(ext)s" style="width:100%">
+  </label>
+  <label>
+    Timeout seconds
+    <input name="timeout" type="number" min="1" max="3600" value="1800" style="width:120px">
+  </label>
+  <label>
+    <input name="metadata_only" type="checkbox">
+    Metadata only
+  </label>
+  <label>
+    <input name="allow_playlist" type="checkbox">
+    Allow playlist
+  </label>
+  <button type="submit">Run</button>
+</form>
+
+<script>
+(() => {
+  const form = document.getElementById("yt-dlp-form");
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const payload = {
+      url: String(data.get("url") || "").trim(),
+      output_path: String(data.get("output_path") || "").trim(),
+      output_template: String(data.get("output_template") || "").trim(),
+      timeout: Number(data.get("timeout") || 1800),
+      metadata_only: data.get("metadata_only") === "on",
+      allow_playlist: data.get("allow_playlist") === "on"
+    };
+    window.parent.postMessage({
+      type: "HANIS_RUN_PLUGIN",
+      plugin: "yt_dlp_downloader",
+      payload
+    }, "*");
+  });
+})();
+</script>

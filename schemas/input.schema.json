@@ -10,13 +10,31 @@
     {
       "key": "output_path",
       "type": "string",
-      "label": "output_path",
+      "label": "Output directory",
+      "required": false
+    },
+    {
+      "key": "output_template",
+      "type": "string",
+      "label": "Filename template",
       "required": false
     },
     {
       "key": "timeout",
       "type": "number",
-      "label": "timeout",
+      "label": "Timeout seconds",
+      "required": false
+    },
+    {
+      "key": "metadata_only",
+      "type": "boolean",
+      "label": "Metadata only",
+      "required": false
+    },
+    {
+      "key": "allow_playlist",
+      "type": "boolean",
+      "label": "Allow playlist",
       "required": false
     }
   ]
