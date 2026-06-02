@@ -11,7 +11,13 @@
       "key": "output_path",
       "type": "string",
       "label": "output_path",
-      "required": true
+      "required": false
+    },
+    {
+      "key": "timeout",
+      "type": "number",
+      "label": "timeout",
+      "required": false
     }
   ]
 }

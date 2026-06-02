@@ -4,7 +4,7 @@
     "entrypoint": "main.py",
     "timeout": 3600,
     "capabilities": ["process_exec", "file_write", "idempotent"],
-    "requires_binaries": ["yt-dlp"],
+    "required_binaries": ["yt-dlp"],
     "input_schema": {
         "type": "object",
         "required": ["url"],
@@ -16,11 +16,15 @@
             "output_path": {
                 "type": "string",
                 "description": "저장 경로"
+            },
+            "timeout": {
+                "type": "integer",
+                "description": "다운로드 제한 시간(초, 최대 3600)"
             }
         }
     },
     "example_payload": {
-        "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        "output_path": "/mnt/md0/동영상/유튜브/유튜브_강의"
+        "url": "https://media.w3.org/2010/05/sintel/trailer.mp4",
+        "output_path": "/var/lib/hanis/downloads/yt_dlp_downloader"
     }
 }
