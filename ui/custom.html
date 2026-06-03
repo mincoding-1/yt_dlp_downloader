@@ -1,4 +1,4 @@
-<form id="yt-dlp-form" style="display:grid;gap:10px;max-width:720px">
+<form id="yt-dlp-form" style="display:grid;gap:10px;max-width:720px;padding:12px">
   <label>
     URL
     <input name="url" type="url" required placeholder="https://media.w3.org/2010/05/sintel/trailer.mp4" style="width:100%">
@@ -25,13 +25,26 @@
   </label>
   <button type="submit">Run</button>
 </form>
+<pre id="yt-dlp-result" style="margin:0 12px 12px;padding:10px;background:#f7f7f7;border:1px solid #ddd;white-space:pre-wrap"></pre>
 
 <script>
 (() => {
   const form = document.getElementById("yt-dlp-form");
+  const result = document.getElementById("yt-dlp-result");
+  const pending = new Map();
+
+  window.addEventListener("message", (event) => {
+    if (event.origin !== window.location.origin) return;
+    const data = event.data || {};
+    if (!data.request_id || !pending.has(data.request_id)) return;
+    pending.delete(data.request_id);
+    result.textContent = JSON.stringify(data, null, 2);
+  });
+
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     const data = new FormData(form);
+    const request_id = `yt_dlp_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     const payload = {
       url: String(data.get("url") || "").trim(),
       output_path: String(data.get("output_path") || "").trim(),
@@ -40,11 +53,15 @@
       metadata_only: data.get("metadata_only") === "on",
       allow_playlist: data.get("allow_playlist") === "on"
     };
+    pending.set(request_id, true);
+    result.textContent = "Requesting job...";
     window.parent.postMessage({
-      type: "HANIS_RUN_PLUGIN",
+      source: "plugin",
+      event: "HANIS_RUN_PLUGIN",
+      request_id,
       plugin: "yt_dlp_downloader",
       payload
-    }, "*");
+    }, window.location.origin);
   });
 })();
 </script>
