@@ -1,67 +1,806 @@
-<form id="yt-dlp-form" style="display:grid;gap:10px;max-width:720px;padding:12px">
-  <label>
-    URL
-    <input name="url" type="url" required placeholder="https://media.w3.org/2010/05/sintel/trailer.mp4" style="width:100%">
-  </label>
-  <label>
-    Output directory
-    <input name="output_path" type="text" value="/var/lib/hanis/downloads/yt_dlp_downloader" style="width:100%">
-  </label>
-  <label>
-    Filename template
-    <input name="output_template" type="text" value="%(title).200B [%(id)s].%(ext)s" style="width:100%">
-  </label>
-  <label>
-    Timeout seconds
-    <input name="timeout" type="number" min="1" max="3600" value="1800" style="width:120px">
-  </label>
-  <label>
-    <input name="metadata_only" type="checkbox">
-    Metadata only
-  </label>
-  <label>
-    <input name="allow_playlist" type="checkbox">
-    Allow playlist
-  </label>
-  <button type="submit">Run</button>
-</form>
-<pre id="yt-dlp-result" style="margin:0 12px 12px;padding:10px;background:#f7f7f7;border:1px solid #ddd;white-space:pre-wrap"></pre>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --surface: #ffffff;
+      --surface-2: #f0f3f6;
+      --line: #d7dde3;
+      --line-strong: #b8c1cc;
+      --text: #1d252d;
+      --muted: #66727f;
+      --accent: #16746b;
+      --accent-strong: #0f5f58;
+      --danger: #b73535;
+      --warning: #946200;
+      --ok: #237143;
+      --shadow: 0 1px 2px rgba(16, 24, 40, 0.08);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
 
-<script>
-(() => {
-  const form = document.getElementById("yt-dlp-form");
-  const result = document.getElementById("yt-dlp-result");
-  const pending = new Map();
+    * { box-sizing: border-box; }
 
-  window.addEventListener("message", (event) => {
-    if (event.origin !== window.location.origin) return;
-    const data = event.data || {};
-    if (!data.request_id || !pending.has(data.request_id)) return;
-    pending.delete(data.request_id);
-    result.textContent = JSON.stringify(data, null, 2);
-  });
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.4;
+    }
 
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const data = new FormData(form);
-    const request_id = `yt_dlp_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    const payload = {
-      url: String(data.get("url") || "").trim(),
-      output_path: String(data.get("output_path") || "").trim(),
-      output_template: String(data.get("output_template") || "").trim(),
-      timeout: Number(data.get("timeout") || 1800),
-      metadata_only: data.get("metadata_only") === "on",
-      allow_playlist: data.get("allow_playlist") === "on"
-    };
-    pending.set(request_id, true);
-    result.textContent = "Requesting job...";
-    window.parent.postMessage({
-      source: "plugin",
-      event: "HANIS_RUN_PLUGIN",
-      request_id,
-      plugin: "yt_dlp_downloader",
-      payload
-    }, window.location.origin);
-  });
-})();
-</script>
+    button, input, select {
+      font: inherit;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+      gap: 12px;
+      padding: 12px;
+      min-height: 100vh;
+    }
+
+    .column {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      min-width: 0;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 650;
+      letter-spacing: 0;
+    }
+
+    .panel-body {
+      padding: 12px;
+    }
+
+    .url-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      min-width: 0;
+    }
+
+    input[type="url"],
+    input[type="text"],
+    input[type="number"],
+    select {
+      width: 100%;
+      min-height: 34px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      padding: 6px 8px;
+      color: var(--text);
+      background: #fff;
+    }
+
+    input:focus,
+    select:focus {
+      outline: 2px solid rgba(22, 116, 107, 0.18);
+      border-color: var(--accent);
+    }
+
+    .btn {
+      min-height: 34px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      padding: 6px 10px;
+      background: #fff;
+      color: var(--text);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn:hover { border-color: var(--accent); }
+    .btn:disabled { cursor: not-allowed; opacity: 0.55; }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+    .btn.danger { border-color: rgba(183, 53, 53, 0.45); color: var(--danger); }
+    .btn.small { min-height: 28px; padding: 4px 8px; font-size: 12px; }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .advanced {
+      margin-top: 10px;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+    }
+
+    .advanced summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: 96px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+    }
+
+    .thumb {
+      width: 96px;
+      aspect-ratio: 16 / 9;
+      border-radius: 6px;
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      object-fit: cover;
+    }
+
+    .thumb.placeholder {
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .title {
+      margin: 0 0 6px;
+      font-size: 15px;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .badge.ok { color: var(--ok); background: rgba(35, 113, 67, 0.1); }
+    .badge.warn { color: var(--warning); background: rgba(148, 98, 0, 0.1); }
+    .badge.err { color: var(--danger); background: rgba(183, 53, 53, 0.1); }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      max-height: 280px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      background: #fff;
+    }
+
+    th, td {
+      padding: 7px 8px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: middle;
+      overflow-wrap: anywhere;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: #f9fafb;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+      z-index: 1;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+    .check-col { width: 38px; }
+    .idx-col { width: 54px; color: var(--muted); }
+    .dur-col { width: 82px; color: var(--muted); }
+
+    .job-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .job {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 9px;
+      background: #fff;
+    }
+
+    .job-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .job-id {
+      font-size: 12px;
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+
+    .progress {
+      height: 8px;
+      background: var(--surface-2);
+      border-radius: 999px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+    }
+
+    .progress > span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+      transition: width 180ms ease;
+    }
+
+    .job-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .files {
+      margin-top: 8px;
+      display: grid;
+      gap: 5px;
+    }
+
+    .file {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      padding: 6px 7px;
+      background: var(--surface-2);
+      border-radius: 5px;
+      font-size: 12px;
+    }
+
+    .empty {
+      color: var(--muted);
+      font-size: 13px;
+      padding: 12px;
+      background: var(--surface-2);
+      border-radius: 6px;
+    }
+
+    .toast {
+      position: fixed;
+      right: 12px;
+      bottom: 12px;
+      max-width: min(460px, calc(100vw - 24px));
+      padding: 10px 12px;
+      border-radius: 7px;
+      background: #1d252d;
+      color: #fff;
+      box-shadow: 0 8px 24px rgba(16, 24, 40, 0.18);
+      display: none;
+      z-index: 20;
+      overflow-wrap: anywhere;
+    }
+
+    .toast.err { background: var(--danger); }
+
+    @media (max-width: 820px) {
+      .app { grid-template-columns: 1fr; }
+      .url-row { grid-template-columns: 1fr; }
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+      .summary { grid-template-columns: 1fr; }
+      .thumb { width: 100%; max-width: 240px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="column">
+      <div class="panel">
+        <div class="panel-header">
+          <h1 class="panel-title">yt-dlp downloader</h1>
+          <span id="ready-badge" class="badge">Idle</span>
+        </div>
+        <div class="panel-body">
+          <div class="url-row">
+            <label>
+              URL
+              <input id="url" type="url" placeholder="https://media.w3.org/2010/05/sintel/trailer.mp4" required>
+            </label>
+            <button id="analyze" class="btn" type="button">Analyze</button>
+            <button id="download" class="btn primary" type="button">Download</button>
+          </div>
+
+          <div class="advanced">
+            <div class="grid-3">
+              <label>
+                Quality
+                <select id="format-preset">
+                  <option value="best">Best</option>
+                  <option value="1080p">1080p</option>
+                  <option value="720p">720p</option>
+                  <option value="480p">480p</option>
+                  <option value="audio">Audio source</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </label>
+              <label>
+                Mode
+                <select id="download-mode">
+                  <option value="video">Video</option>
+                  <option value="audio">Audio</option>
+                </select>
+              </label>
+              <label>
+                Timeout
+                <input id="timeout" type="number" min="1" max="3600" value="1800">
+              </label>
+            </div>
+            <details>
+              <summary>Advanced options</summary>
+              <div class="grid-2">
+                <label>
+                  Output directory
+                  <input id="output-path" type="text" value="/var/lib/hanis/downloads/yt_dlp_downloader">
+                </label>
+                <label>
+                  Filename template
+                  <input id="output-template" type="text" value="%(title).200B [%(id)s].%(ext)s">
+                </label>
+                <label>
+                  Custom format selector
+                  <input id="format-selector" type="text" placeholder="bestvideo[height&lt;=720]+bestaudio/best">
+                </label>
+                <label>
+                  Metadata limit
+                  <input id="metadata-limit" type="number" min="1" max="100" value="50">
+                </label>
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Metadata</h2>
+          <span id="metadata-badge" class="badge">Not analyzed</span>
+        </div>
+        <div id="metadata" class="panel-body">
+          <div class="empty">No metadata loaded.</div>
+        </div>
+      </div>
+
+      <div class="panel" id="entries-panel" style="display:none">
+        <div class="panel-header">
+          <h2 class="panel-title">Entries</h2>
+          <div>
+            <button id="select-all" class="btn small" type="button">All</button>
+            <button id="select-none" class="btn small" type="button">None</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th class="check-col"></th>
+                  <th class="idx-col">Index</th>
+                  <th>Title</th>
+                  <th class="dur-col">Duration</th>
+                </tr>
+              </thead>
+              <tbody id="entries"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="column">
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Active Jobs</h2>
+          <button id="refresh-jobs" class="btn small" type="button">Refresh</button>
+        </div>
+        <div class="panel-body">
+          <div id="active-jobs" class="job-list">
+            <div class="empty">No active jobs.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Recent Results</h2>
+          <span id="recent-count" class="badge">0</span>
+        </div>
+        <div class="panel-body">
+          <div id="recent-jobs" class="job-list">
+            <div class="empty">No recent results.</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+  <div id="toast" class="toast"></div>
+
+  <script>
+    (() => {
+      const plugin = "yt_dlp_downloader";
+      const state = {
+        metadata: null,
+        entries: [],
+        watchedJobs: new Set(),
+        pollTimer: null
+      };
+
+      const $ = (id) => document.getElementById(id);
+
+      function toast(message, isError = false) {
+        const el = $("toast");
+        el.textContent = message;
+        el.className = `toast${isError ? " err" : ""}`;
+        el.style.display = "block";
+        clearTimeout(el._timer);
+        el._timer = setTimeout(() => { el.style.display = "none"; }, 3800);
+      }
+
+      async function api(path, options = {}) {
+        const res = await fetch(path, {
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+          ...options
+        });
+        const text = await res.text();
+        const data = text ? JSON.parse(text) : {};
+        if (!res.ok) {
+          throw new Error(data.detail || data.error || `${res.status} ${res.statusText}`);
+        }
+        return data;
+      }
+
+      function formatDuration(value) {
+        if (value === null || value === undefined || value === "") return "-";
+        const total = Number(value);
+        if (!Number.isFinite(total)) return String(value);
+        const h = Math.floor(total / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        const s = Math.floor(total % 60);
+        return h ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : `${m}:${String(s).padStart(2, "0")}`;
+      }
+
+      function formatBytes(value) {
+        const n = Number(value || 0);
+        if (!n) return "0 B";
+        const units = ["B", "KB", "MB", "GB", "TB"];
+        let size = n;
+        let unit = 0;
+        while (size >= 1024 && unit < units.length - 1) {
+          size /= 1024;
+          unit += 1;
+        }
+        return `${size.toFixed(size >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
+      }
+
+      function statusBadge(status) {
+        const cls = status === "completed" || status === "success" ? "ok" :
+          status === "quarantine" || status === "failed" ? "err" :
+          status === "canceled" ? "warn" : "";
+        return `<span class="badge ${cls}">${escapeHtml(status || "unknown")}</span>`;
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+          "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
+        }[ch]));
+      }
+
+      function payloadBase() {
+        const preset = $("format-preset").value;
+        const mode = $("download-mode").value;
+        const payload = {
+          url: $("url").value.trim(),
+          output_path: $("output-path").value.trim(),
+          output_template: $("output-template").value.trim(),
+          timeout: Number($("timeout").value || 1800),
+          format_preset: preset,
+          download_mode: mode,
+          allow_playlist: false
+        };
+        const custom = $("format-selector").value.trim();
+        if (preset === "custom") payload.format_selector = custom;
+        if (mode === "audio") payload.audio_format = "source";
+        return payload;
+      }
+
+      async function createJob(payload) {
+        return api("/jobs", {
+          method: "POST",
+          body: JSON.stringify({ plugin, payload })
+        });
+      }
+
+      async function waitForJob(jobId, onUpdate) {
+        const terminal = new Set(["completed", "success", "quarantine", "failed", "canceled"]);
+        const started = Date.now();
+        for (;;) {
+          let job = null;
+          try {
+            job = await api(`/jobs/${jobId}`);
+          } catch (error) {
+            const transientWindow = Date.now() - started < 12000;
+            if (!transientWindow) throw error;
+            const jobs = await loadPluginJobs().catch(() => []);
+            job = jobs.find((item) => item.id === jobId) || null;
+            if (!job) {
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+              continue;
+            }
+          }
+          onUpdate?.(job);
+          if (terminal.has(job.status)) return job;
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+        }
+      }
+
+      function renderMetadata(metadata) {
+        const root = $("metadata");
+        if (!metadata) {
+          root.innerHTML = '<div class="empty">No metadata loaded.</div>';
+          $("metadata-badge").textContent = "Not analyzed";
+          return;
+        }
+        $("metadata-badge").textContent = metadata.kind || "metadata";
+        const thumb = metadata.thumbnail
+          ? `<img class="thumb" src="${escapeHtml(metadata.thumbnail)}" alt="">`
+          : '<div class="thumb placeholder">No image</div>';
+        root.innerHTML = `
+          <div class="summary">
+            ${thumb}
+            <div>
+              <h3 class="title">${escapeHtml(metadata.title || metadata.webpage_url || "Untitled")}</h3>
+              <div class="meta">
+                <span class="badge">${escapeHtml(metadata.kind || "unknown")}</span>
+                <span>${escapeHtml(metadata.extractor || "-")}</span>
+                <span>${formatDuration(metadata.duration)}</span>
+                ${metadata.uploader ? `<span>${escapeHtml(metadata.uploader)}</span>` : ""}
+                ${metadata.entries_count ? `<span>${metadata.entries_count} entries</span>` : ""}
+                ${metadata.entries_truncated ? '<span class="badge warn">truncated</span>' : ""}
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      function renderEntries(entries) {
+        state.entries = Array.isArray(entries) ? entries : [];
+        const panel = $("entries-panel");
+        const body = $("entries");
+        if (!state.entries.length) {
+          panel.style.display = "none";
+          body.innerHTML = "";
+          return;
+        }
+        panel.style.display = "block";
+        body.innerHTML = state.entries.map((entry) => `
+          <tr>
+            <td class="check-col"><input type="checkbox" class="entry-check" value="${entry.index}" checked></td>
+            <td class="idx-col">${entry.index}</td>
+            <td>${escapeHtml(entry.title || entry.id || `Item ${entry.index}`)}</td>
+            <td class="dur-col">${formatDuration(entry.duration)}</td>
+          </tr>
+        `).join("");
+      }
+
+      function selectedEntries() {
+        return Array.from(document.querySelectorAll(".entry-check:checked"))
+          .map((input) => Number(input.value))
+          .filter((value) => Number.isInteger(value) && value > 0);
+      }
+
+      async function analyze() {
+        const payload = payloadBase();
+        if (!payload.url) return toast("URL is required.", true);
+        payload.metadata_only = true;
+        payload.metadata_limit = Number($("metadata-limit").value || 50);
+        $("analyze").disabled = true;
+        $("ready-badge").textContent = "Analyzing";
+        try {
+          const created = await createJob(payload);
+          state.watchedJobs.add(created.job_id);
+          renderJobs();
+          const job = await waitForJob(created.job_id, renderJobs);
+          if (job.status !== "completed" && job.status !== "success") {
+            throw new Error(`metadata job ended as ${job.status}`);
+          }
+          const metadata = job.result?.metadata;
+          state.metadata = metadata || null;
+          renderMetadata(state.metadata);
+          renderEntries(state.metadata?.entries || []);
+          toast("Metadata loaded.");
+        } catch (error) {
+          toast(error.message, true);
+        } finally {
+          $("analyze").disabled = false;
+          $("ready-badge").textContent = "Idle";
+          renderJobs();
+        }
+      }
+
+      async function download() {
+        const payload = payloadBase();
+        if (!payload.url) return toast("URL is required.", true);
+        const entries = selectedEntries();
+        if (entries.length) {
+          payload.allow_playlist = true;
+          payload.selected_entries = entries;
+        }
+        $("download").disabled = true;
+        try {
+          const created = await createJob(payload);
+          state.watchedJobs.add(created.job_id);
+          toast(`Job created: ${created.job_id}`);
+          renderJobs();
+        } catch (error) {
+          toast(error.message, true);
+        } finally {
+          $("download").disabled = false;
+        }
+      }
+
+      async function cancelJob(jobId) {
+        try {
+          await api(`/jobs/${jobId}/cancel`, { method: "POST", body: "{}" });
+          toast(`Cancel requested: ${jobId}`);
+          renderJobs();
+        } catch (error) {
+          toast(error.message, true);
+        }
+      }
+
+      async function loadPluginJobs() {
+        const jobs = await api("/jobs");
+        return jobs
+          .filter((job) => job.plugin === plugin)
+          .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      }
+
+      function jobPercent(job) {
+        const progress = job.progress || {};
+        if (typeof progress.percent === "number") return Math.max(0, Math.min(100, progress.percent));
+        if (job.status === "completed" || job.status === "success") return 100;
+        return 0;
+      }
+
+      function renderJob(job, compact = false) {
+        const progress = job.progress || {};
+        const percent = jobPercent(job);
+        const files = job.result?.files || [];
+        const canCancel = job.status === "pending" || job.status === "running";
+        return `
+          <div class="job">
+            <div class="job-head">
+              ${statusBadge(job.status)}
+              ${canCancel ? `<button class="btn danger small" data-cancel="${escapeHtml(job.id)}" type="button">Cancel</button>` : ""}
+            </div>
+            <div class="job-id">${escapeHtml(job.id)}</div>
+            ${compact ? "" : `<div class="progress" aria-label="progress"><span style="width:${percent}%"></span></div>`}
+            <div class="job-meta">
+              <span>${percent.toFixed(percent % 1 ? 1 : 0)}%</span>
+              ${progress.speed ? `<span>${escapeHtml(progress.speed)}</span>` : ""}
+              ${progress.eta ? `<span>ETA ${escapeHtml(progress.eta)}</span>` : ""}
+              ${job.result?.mode ? `<span>${escapeHtml(job.result.mode)}</span>` : ""}
+              ${job.result?.format_preset ? `<span>${escapeHtml(job.result.format_preset)}</span>` : ""}
+            </div>
+            ${files.length ? `<div class="files">${files.map((file) => `
+              <div class="file">
+                <span>${escapeHtml(file.title || file.path)}</span>
+                <span>${escapeHtml(file.ext || "")} ${formatBytes(file.size)}</span>
+              </div>
+            `).join("")}</div>` : ""}
+          </div>
+        `;
+      }
+
+      async function renderJobs() {
+        try {
+          const jobs = await loadPluginJobs();
+          const active = jobs.filter((job) => job.status === "pending" || job.status === "running");
+          const recent = jobs.filter((job) => !active.includes(job)).slice(0, 8);
+          $("active-jobs").innerHTML = active.length
+            ? active.map((job) => renderJob(job)).join("")
+            : '<div class="empty">No active jobs.</div>';
+          $("recent-jobs").innerHTML = recent.length
+            ? recent.map((job) => renderJob(job, true)).join("")
+            : '<div class="empty">No recent results.</div>';
+          $("recent-count").textContent = String(recent.length);
+          document.querySelectorAll("[data-cancel]").forEach((button) => {
+            button.addEventListener("click", () => cancelJob(button.dataset.cancel));
+          });
+        } catch (error) {
+          $("active-jobs").innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+        }
+      }
+
+      $("analyze").addEventListener("click", analyze);
+      $("download").addEventListener("click", download);
+      $("refresh-jobs").addEventListener("click", renderJobs);
+      $("select-all").addEventListener("click", () => {
+        document.querySelectorAll(".entry-check").forEach((input) => { input.checked = true; });
+      });
+      $("select-none").addEventListener("click", () => {
+        document.querySelectorAll(".entry-check").forEach((input) => { input.checked = false; });
+      });
+      $("format-preset").addEventListener("change", () => {
+        const preset = $("format-preset").value;
+        if (preset === "audio") $("download-mode").value = "audio";
+      });
+      $("download-mode").addEventListener("change", () => {
+        if ($("download-mode").value === "audio" && $("format-preset").value === "best") {
+          $("format-preset").value = "audio";
+        }
+      });
+
+      renderJobs();
+      state.pollTimer = setInterval(renderJobs, 2500);
+      window.addEventListener("beforeunload", () => clearInterval(state.pollTimer));
+    })();
+  </script>
+</body>
+</html>

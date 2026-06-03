@@ -36,6 +36,42 @@
       "type": "boolean",
       "label": "Allow playlist",
       "required": false
+    },
+    {
+      "key": "metadata_limit",
+      "type": "number",
+      "label": "Metadata item limit",
+      "required": false
+    },
+    {
+      "key": "format_preset",
+      "type": "string",
+      "label": "Format preset",
+      "required": false
+    },
+    {
+      "key": "format_selector",
+      "type": "string",
+      "label": "Custom format selector",
+      "required": false
+    },
+    {
+      "key": "download_mode",
+      "type": "string",
+      "label": "Download mode",
+      "required": false
+    },
+    {
+      "key": "audio_format",
+      "type": "string",
+      "label": "Audio format",
+      "required": false
+    },
+    {
+      "key": "selected_entries",
+      "type": "array",
+      "label": "Selected playlist entries",
+      "required": false
     }
   ]
 }

@@ -1,6 +1,6 @@
 {
     "name": "yt_dlp_downloader",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "entrypoint": "main.py",
     "timeout": 3600,
     "capabilities": ["process_exec", "file_write", "idempotent"],
@@ -32,12 +32,38 @@
             "allow_playlist": {
                 "type": "boolean",
                 "description": "playlist 다운로드 허용"
+            },
+            "metadata_limit": {
+                "type": "integer",
+                "description": "메타데이터 조회 시 playlist/channel 항목 최대 개수"
+            },
+            "format_preset": {
+                "type": "string",
+                "description": "best, 1080p, 720p, 480p, audio, custom"
+            },
+            "format_selector": {
+                "type": "string",
+                "description": "format_preset=custom일 때 사용할 yt-dlp format selector"
+            },
+            "download_mode": {
+                "type": "string",
+                "description": "video 또는 audio"
+            },
+            "audio_format": {
+                "type": "string",
+                "description": "source, mp3, m4a, opus, flac, wav"
+            },
+            "selected_entries": {
+                "type": "array",
+                "description": "playlist/channel에서 다운로드할 1-based 항목 index 목록"
             }
         }
     },
     "example_payload": {
         "url": "https://media.w3.org/2010/05/sintel/trailer.mp4",
         "output_path": "/var/lib/hanis/downloads/yt_dlp_downloader",
-        "output_template": "%(title).200B [%(id)s].%(ext)s"
+        "output_template": "%(title).200B [%(id)s].%(ext)s",
+        "format_preset": "best",
+        "download_mode": "video"
     }
 }
