@@ -1,10 +1,16 @@
 {
     "name": "yt_dlp_downloader",
-    "version": "1.2.1",
+    "version": "1.2.2",
     "entrypoint": "main.py",
     "timeout": 3600,
     "capabilities": ["process_exec", "file_write", "idempotent"],
     "required_binaries": ["yt-dlp", "ffmpeg"],
+    "rlimits": {
+        "RLIMIT_CPU": [3600, 3600],
+        "RLIMIT_AS": [2147483648, 2147483648],
+        "RLIMIT_FSIZE": [53687091200, 53687091200],
+        "RLIMIT_NOFILE": [256, 256]
+    },
     "input_schema": {
         "type": "object",
         "required": ["url"],
