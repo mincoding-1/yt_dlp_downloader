@@ -27,7 +27,7 @@ ALLOWED_COLLECTIONS = {"plex", "shorts", "custom"}
 YT_DLP_PATH = Path("/opt/hanis-tools/current/yt-dlp")
 MAX_STDIO_CHARS = 4000
 MAX_ERROR_CHARS = 1000
-DEFAULT_OUTPUT_TEMPLATE = "%(uploader)s/%(title).200B [%(id)s].%(ext)s"
+DEFAULT_OUTPUT_TEMPLATE = "%(uploader)s [%(channel_id)s]/%(playlist_index)s - %(title).200B [%(id)s].%(ext)s"
 MAX_METADATA_ENTRIES = 100
 DEFAULT_METADATA_ENTRIES = 50
 ARCHIVE_ROOT = STATE_ROOT / "data" / "yt_dlp_downloader" / "archive"
@@ -48,13 +48,24 @@ JS_RUNTIME = shutil.which("node")
 _CURRENT_PROC = None
 
 ERROR_MAPPING = [
-    (re.compile(r"private video|members-only|sign in to confirm|video unavailable", re.I), False, "unavailable"),
+    (re.compile(r"private video|members-only|sign in to confirm|video unavailable|this video is unavailable", re.I), False, "unavailable"),
     (re.compile(r"unsupported url|no suitable extractor", re.I), False, "unsupported_url"),
     (re.compile(r"requested format is not available", re.I), False, "format_unavailable"),
     (re.compile(r"http error 429|too many requests|rate.?limit", re.I), True, "rate_limited"),
     (re.compile(r"timed out|temporary failure|connection reset|network is unreachable", re.I), True, "network"),
     (re.compile(r"ffmpeg.*not installed|ffmpeg.*not found", re.I), False, "missing_ffmpeg"),
 ]
+
+SKIP_REASON_PATTERNS = [
+    (re.compile(r"private video|sign in if you've been granted access", re.I), "private_video"),
+    (re.compile(r"video unavailable|this video is unavailable", re.I), "unavailable"),
+    (re.compile(r"has already been downloaded|download archive", re.I), "already_in_archive"),
+    (re.compile(r"file already exists|has already been downloaded", re.I), "file_exists"),
+    (re.compile(r"live event will begin|live stream offline|premieres in", re.I), "live_not_ready"),
+    (re.compile(r"members-only", re.I), "members_only"),
+]
+
+PLAYLIST_NON_FATAL_REASONS = {"unavailable"}
 
 
 def _validate_url(value: str) -> str:
@@ -123,6 +134,20 @@ def _resolve_output_template(value: str | None) -> str:
     if "%(id)" not in template:
         raise PermanentError("output_template must include %(id)s to avoid filename collisions")
     return template
+
+
+def _tool_env(output_dir: Path) -> dict:
+    return {
+        "PATH": "/opt/hanis-tools/current:/usr/local/bin:/usr/bin:/bin",
+        "HOME": str(output_dir),
+        "LANG": "C",
+        "LC_ALL": "C",
+    }
+
+
+def _append_js_runtime(cmd: list[str]) -> None:
+    if shutil.which("node"):
+        cmd.extend(["--js-runtimes", "node"])
 
 
 def _resolve_format_selector(payload: dict) -> tuple[str, str]:
@@ -367,8 +392,11 @@ def _preview_items(metadata: dict, archive_path: Path | None, limit: int) -> dic
     will_download = []
     will_skip = []
     for entry in entries:
-        if _archive_contains(archive_path, entry.get("id")):
-            will_skip.append({**entry, "reason": "already in archive"})
+        reason = _entry_skip_reason(entry)
+        if reason:
+            will_skip.append({**entry, "reason": reason})
+        elif _archive_contains(archive_path, entry.get("id")):
+            will_skip.append({**entry, "reason": "already_in_archive"})
         else:
             will_download.append(entry)
     return {
@@ -449,6 +477,137 @@ def _classify_yt_dlp_error(output: str) -> tuple[bool, str]:
         if pattern.search(output or ""):
             return retryable, reason
     return True, "yt_dlp_failed"
+
+
+def _entry_skip_reason(entry: dict) -> str | None:
+    availability = str(entry.get("availability") or "").lower()
+    live_status = str(entry.get("live_status") or "").lower()
+    title = str(entry.get("title") or "").lower()
+    if availability in {"private", "premium_only", "subscriber_only", "needs_auth"}:
+        return "private_video"
+    if availability in {"unavailable", "deleted"}:
+        return "unavailable"
+    if live_status in {"is_upcoming", "is_live"}:
+        return "live_not_ready"
+    if "[private video]" in title:
+        return "private_video"
+    if "[deleted video]" in title:
+        return "unavailable"
+    return None
+
+
+def _parse_skipped_items(output: str, metadata: dict | None = None, limit: int = 50) -> list[dict]:
+    skipped = []
+    seen = set()
+    for line in (output or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        reason = None
+        for pattern, mapped in SKIP_REASON_PATTERNS:
+            if pattern.search(line):
+                reason = mapped
+                break
+        if not reason:
+            continue
+        item_id = None
+        match = re.search(r"\[youtube\]\s+([A-Za-z0-9_-]{6,})", line)
+        if match:
+            item_id = match.group(1)
+        key = (item_id or line[-120:], reason)
+        if key in seen:
+            continue
+        seen.add(key)
+        skipped.append({
+            "id": item_id,
+            "title": item_id or "unknown",
+            "reason": reason,
+            "detail": line[-240:],
+        })
+        if len(skipped) >= limit:
+            return skipped
+
+    if metadata:
+        raw_entries = metadata.get("entries")
+        if isinstance(raw_entries, list):
+            for index, entry in enumerate(raw_entries[:limit], start=1):
+                if not isinstance(entry, dict):
+                    continue
+                reason = _entry_skip_reason(entry)
+                if not reason:
+                    continue
+                normalized = _normalize_entry(entry, index)
+                key = (normalized.get("id") or index, reason)
+                if key in seen:
+                    continue
+                seen.add(key)
+                skipped.append({**normalized, "reason": reason})
+                if len(skipped) >= limit:
+                    break
+    return skipped
+
+
+def _count_archive_skips(output: str) -> int:
+    return len(re.findall(r"has already been downloaded|download archive", output or "", flags=re.I))
+
+
+def _playlist_partial_result(
+    payload: dict,
+    *,
+    metadata: dict,
+    archive_id: str | None,
+    output_dir: Path,
+    collection: str,
+    relative_path: str,
+    files: list[dict],
+    combined_output: str,
+    duration: float,
+    download_mode: str,
+    format_preset: str,
+    format_selector: str,
+    selected_entries: str | None,
+    output_template_name: str,
+) -> dict:
+    skipped = _parse_skipped_items(combined_output, metadata, _metadata_limit(payload))
+    archive_skips = _count_archive_skips(combined_output)
+    skipped_count = max(len(skipped), archive_skips)
+    status = "partial" if files else "no_new_items"
+    plugin_log(
+        payload,
+        f"[yt_dlp_downloader] playlist completed status={status} files={len(files)} skipped={skipped_count}",
+    )
+    _write_progress(payload, {
+        "status": "completed",
+        "percent": 100.0,
+        "files": len(files),
+        "skipped": skipped_count,
+        "result_status": status,
+    })
+    _update_schedule_failures(payload, failed=False, retryable=False)
+    _write_snapshot(payload, metadata, archive_id, {
+        "downloaded_count": len(files),
+        "skipped_count": skipped_count,
+    })
+    return {
+        "success": True,
+        "mode": "download",
+        "status": status,
+        "collection": collection,
+        "relative_path": relative_path,
+        "archive_id": archive_id,
+        "download_mode": download_mode,
+        "format_preset": format_preset,
+        "format_selector": format_selector,
+        "selected_entries": selected_entries,
+        "output_dir": str(output_dir),
+        "output_template": output_template_name,
+        "files": files[:20],
+        "downloaded_count": len(files),
+        "skipped_count": skipped_count,
+        "skipped": skipped[:20],
+        "duration_seconds": duration,
+        "diagnostic_tail": _tail(combined_output),
+    }
 
 
 def _raise_yt_dlp_error(payload: dict, output: str):
@@ -619,10 +778,7 @@ def _run_yt_dlp(payload: dict, cmd: list[str], output_dir: Path, timeout: int) -
             text=True,
             bufsize=1,
             env={
-                "PATH": "/opt/hanis-tools/current:/usr/local/bin:/usr/bin:/bin",
-                "HOME": str(output_dir),
-                "LANG": "C",
-                "LC_ALL": "C",
+                **_tool_env(output_dir),
             },
         )
         _CURRENT_PROC = proc
@@ -671,6 +827,7 @@ def _metadata_lookup(payload: dict, binary: str, url: str, output_dir: Path, tim
         str(limit),
         url,
     ]
+    _append_js_runtime(cmd)
     plugin_log(payload, "[yt_dlp_downloader] metadata lookup start")
     try:
         result = subprocess.run(
@@ -681,10 +838,7 @@ def _metadata_lookup(payload: dict, binary: str, url: str, output_dir: Path, tim
             text=True,
             timeout=timeout,
             env={
-                "PATH": "/opt/hanis-tools/current:/usr/local/bin:/usr/bin:/bin",
-                "HOME": str(output_dir),
-                "LANG": "C",
-                "LC_ALL": "C",
+                **_tool_env(output_dir),
             },
         )
     except subprocess.TimeoutExpired:
@@ -716,6 +870,7 @@ def _extract_metadata(payload: dict, binary: str, url: str, output_dir: Path, ti
         str(limit),
         url,
     ]
+    _append_js_runtime(cmd)
     try:
         result = subprocess.run(
             cmd,
@@ -725,10 +880,7 @@ def _extract_metadata(payload: dict, binary: str, url: str, output_dir: Path, ti
             text=True,
             timeout=timeout,
             env={
-                "PATH": "/opt/hanis-tools/current:/usr/local/bin:/usr/bin:/bin",
-                "HOME": str(output_dir),
-                "LANG": "C",
-                "LC_ALL": "C",
+                **_tool_env(output_dir),
             },
         )
     except subprocess.TimeoutExpired:
@@ -823,12 +975,13 @@ def execute(payload: dict):
     ]
     if archive_path:
         cmd.extend(["--download-archive", str(archive_path)])
-    if JS_RUNTIME:
-        cmd.extend(["--js-runtimes", "node"])
+    _append_js_runtime(cmd)
     if selected_entries:
         cmd.extend(["--playlist-items", selected_entries])
     if not allow_playlist:
         cmd.append("--no-playlist")
+    else:
+        cmd.append("--ignore-errors")
     if download_mode == "audio" and audio_format != "source":
         cmd.extend(["--extract-audio", "--audio-format", audio_format])
     cmd.append(url)
@@ -847,17 +1000,56 @@ def execute(payload: dict):
         if rc != 0:
             plugin_log(payload, f"[yt_dlp_downloader] failed rc={rc}")
             _write_progress(payload, {"status": "failed", "error": _error_summary(combined_output)})
+            retryable, reason = _classify_yt_dlp_error(combined_output)
+            if allow_playlist and reason in PLAYLIST_NON_FATAL_REASONS:
+                files = _collect_changed_files(output_dir, before_files)
+                return _playlist_partial_result(
+                    payload,
+                    metadata=metadata,
+                    archive_id=archive_id,
+                    output_dir=output_dir,
+                    collection=collection,
+                    relative_path=relative_path,
+                    files=files,
+                    combined_output=combined_output,
+                    duration=duration,
+                    download_mode=download_mode,
+                    format_preset=format_preset,
+                    format_selector=format_selector,
+                    selected_entries=selected_entries,
+                    output_template_name=output_template_name,
+                )
             _raise_yt_dlp_error(payload, combined_output)
     finally:
         _release_archive_lease(lease_id)
 
     files = _collect_changed_files(output_dir, before_files)
+    skipped = _parse_skipped_items(combined_output, metadata, _metadata_limit(payload))
+    archive_skips = _count_archive_skips(combined_output)
+    if allow_playlist and (skipped or archive_skips) and files:
+        return _playlist_partial_result(
+            payload,
+            metadata=metadata,
+            archive_id=archive_id,
+            output_dir=output_dir,
+            collection=collection,
+            relative_path=relative_path,
+            files=files,
+            combined_output=combined_output,
+            duration=duration,
+            download_mode=download_mode,
+            format_preset=format_preset,
+            format_selector=format_selector,
+            selected_entries=selected_entries,
+            output_template_name=output_template_name,
+        )
     if not files:
-        if "has already been downloaded" in combined_output or archive_path:
+        if "has already been downloaded" in combined_output or archive_path or skipped:
             plugin_log(payload, "[yt_dlp_downloader] completed with no new items")
             _write_progress(payload, {"status": "completed", "percent": 100.0, "files": 0})
             _update_schedule_failures(payload, failed=False, retryable=False)
-            _write_snapshot(payload, metadata, archive_id, {"downloaded_count": 0, "skipped_count": 0})
+            skipped_count = max(len(skipped), archive_skips)
+            _write_snapshot(payload, metadata, archive_id, {"downloaded_count": 0, "skipped_count": skipped_count})
             return {
                 "success": True,
                 "mode": "download",
@@ -867,6 +1059,9 @@ def execute(payload: dict):
                 "archive_id": archive_id,
                 "output_dir": str(output_dir),
                 "files": [],
+                "downloaded_count": 0,
+                "skipped_count": skipped_count,
+                "skipped": skipped[:20],
                 "duration_seconds": duration,
                 "diagnostic_tail": _tail(combined_output),
             }
@@ -892,6 +1087,9 @@ def execute(payload: dict):
         "output_dir": str(output_dir),
         "output_template": output_template_name,
         "files": files[:20],
+        "downloaded_count": len(files),
+        "skipped_count": 0,
+        "skipped": [],
         "duration_seconds": duration,
         "diagnostic_tail": _tail(combined_output),
     }

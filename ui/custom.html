@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -330,6 +330,13 @@
       border-radius: 6px;
     }
 
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 4px;
+      overflow-wrap: anywhere;
+    }
+
     .toast {
       position: fixed;
       right: 12px;
@@ -361,8 +368,8 @@
     <section class="column">
       <div class="panel">
         <div class="panel-header">
-          <h1 class="panel-title">yt-dlp downloader</h1>
-          <span id="ready-badge" class="badge">Idle</span>
+          <h1 class="panel-title">yt-dlp 다운로드</h1>
+          <span id="ready-badge" class="badge">대기 중</span>
         </div>
         <div class="panel-body">
           <div class="url-row">
@@ -370,93 +377,106 @@
               URL
               <input id="url" type="url" placeholder="https://media.w3.org/2010/05/sintel/trailer.mp4" required>
             </label>
-            <button id="analyze" class="btn" type="button">Analyze</button>
-            <button id="dry-run" class="btn" type="button">Dry Run</button>
-            <button id="download" class="btn primary" type="button">Run Now</button>
+            <button id="analyze" class="btn" type="button">분석</button>
+            <button id="dry-run" class="btn" type="button">미리 보기</button>
+            <button id="download" class="btn primary" type="button">지금 실행</button>
           </div>
 
           <div class="advanced">
             <div class="preset-row">
               <label>
-                Preset
+                사용자 프리셋
                 <select id="preset">
-                  <option value="">Manual settings</option>
+                  <option value="">직접 설정</option>
                 </select>
               </label>
-              <button id="save-preset" class="btn" type="button">Save Preset</button>
-              <button id="delete-preset" class="btn danger" type="button">Delete</button>
+              <button id="save-preset" class="btn" type="button">프리셋 저장</button>
+              <button id="delete-preset" class="btn danger" type="button">삭제</button>
             </div>
             <div class="grid-3">
               <label>
                 Collection
                 <select id="collection">
-                  <option value="plex">Plex Library</option>
-                  <option value="shorts">Shorts Source</option>
-                  <option value="custom" selected>Custom</option>
+                  <option value="plex">Plex 라이브러리</option>
+                  <option value="shorts">쇼츠 원본</option>
+                  <option value="custom" selected>사용자 지정</option>
                 </select>
+                <div class="hint">현재는 저장 분류이며, 향후 플러그인 간 계약 키로 사용할 수 있습니다.</div>
               </label>
               <label>
-                Library path
+                저장 하위 경로
                 <input id="relative-path" type="text" value="yt_dlp_downloader">
               </label>
               <label>
-                Archive
+                중복 방지
                 <select id="archive-mode">
-                  <option value="disabled">Disabled</option>
-                  <option value="auto" selected>Automatic</option>
-                  <option value="custom">Custom</option>
+                  <option value="disabled">사용 안 함</option>
+                  <option value="auto" selected>자동</option>
+                  <option value="custom">직접 지정</option>
                 </select>
               </label>
               <label>
-                Quality
+                화질
                 <select id="format-preset">
-                  <option value="best">Best</option>
+                  <option value="best">최고 품질</option>
                   <option value="1080p">1080p</option>
                   <option value="720p">720p</option>
                   <option value="480p">480p</option>
-                  <option value="audio">Audio source</option>
-                  <option value="custom">Custom</option>
+                  <option value="audio">오디오 원본</option>
+                  <option value="custom">직접 지정</option>
                 </select>
               </label>
               <label>
-                Mode
+                모드
                 <select id="download-mode">
-                  <option value="video">Video</option>
-                  <option value="audio">Audio</option>
+                  <option value="video">영상</option>
+                  <option value="audio">오디오</option>
                 </select>
               </label>
               <label>
-                Timeout
+                제한 시간
                 <input id="timeout" type="number" min="1" max="3600" value="1800">
               </label>
               <label>
-                Schedule cron
+                스케줄 Cron
                 <input id="schedule-cron" type="text" placeholder="*/30 * * * *">
               </label>
             </div>
             <details>
-              <summary>Advanced options</summary>
+              <summary>고급 옵션</summary>
               <div class="grid-2">
                 <label>
-                  Filename template
-                  <input id="output-template" type="text" value="%(uploader)s/%(title).200B [%(id)s].%(ext)s">
+                  파일명 템플릿 프리셋
+                  <select id="template-preset">
+                    <option value="plex">Plex YouTube Agent</option>
+                    <option value="playlist">재생목록 보관</option>
+                    <option value="channel">채널 보관</option>
+                    <option value="flat">단일 폴더</option>
+                    <option value="custom">직접 입력</option>
+                  </select>
+                  <div class="hint">Plex용은 영상 ID, 채널 ID를 파일/폴더명에 포함합니다.</div>
+                </label>
+                <label>
+                  파일명 템플릿
+                  <input id="output-template" type="text" value="%(uploader)s [%(channel_id)s]/%(playlist_index)s - %(title).200B [%(id)s].%(ext)s">
+                  <div class="hint">주요 변수: %(id)s, %(channel_id)s, %(playlist_id)s, %(playlist_index)s, %(uploader)s, %(upload_date)s, %(title)s, %(ext)s</div>
                 </label>
                 <label>
                   Archive ID
                   <input id="archive-id" type="text" placeholder="custom archive id">
                 </label>
                 <label>
-                  Custom format selector
+                  사용자 포맷 선택자
                   <input id="format-selector" type="text" placeholder="bestvideo[height&lt;=720]+bestaudio/best">
                 </label>
                 <label>
-                  Metadata limit
+                  메타데이터 항목 수
                   <input id="metadata-limit" type="number" min="1" max="100" value="50">
                 </label>
               </div>
             </details>
             <div style="margin-top:10px">
-              <button id="create-schedule" class="btn" type="button">Create Schedule</button>
+              <button id="create-schedule" class="btn" type="button">스케줄 만들기</button>
             </div>
           </div>
         </div>
@@ -464,20 +484,20 @@
 
       <div class="panel">
         <div class="panel-header">
-          <h2 class="panel-title">Metadata</h2>
-          <span id="metadata-badge" class="badge">Not analyzed</span>
+          <h2 class="panel-title">분석 결과</h2>
+          <span id="metadata-badge" class="badge">분석 전</span>
         </div>
         <div id="metadata" class="panel-body">
-          <div class="empty">No metadata loaded.</div>
+          <div class="empty">아직 분석 결과가 없습니다.</div>
         </div>
       </div>
 
       <div class="panel" id="entries-panel" style="display:none">
         <div class="panel-header">
-          <h2 class="panel-title">Entries</h2>
+          <h2 class="panel-title">항목</h2>
           <div>
-            <button id="select-all" class="btn small" type="button">All</button>
-            <button id="select-none" class="btn small" type="button">None</button>
+            <button id="select-all" class="btn small" type="button">전체</button>
+            <button id="select-none" class="btn small" type="button">해제</button>
           </div>
         </div>
         <div class="panel-body">
@@ -486,9 +506,9 @@
               <thead>
                 <tr>
                   <th class="check-col"></th>
-                  <th class="idx-col">Index</th>
-                  <th>Title</th>
-                  <th class="dur-col">Duration</th>
+                  <th class="idx-col">번호</th>
+                  <th>제목</th>
+                  <th class="dur-col">길이</th>
                 </tr>
               </thead>
               <tbody id="entries"></tbody>
@@ -501,36 +521,36 @@
     <aside class="column">
       <div class="panel">
         <div class="panel-header">
-          <h2 class="panel-title">Active Jobs</h2>
-          <button id="refresh-jobs" class="btn small" type="button">Refresh</button>
+          <h2 class="panel-title">실행 중</h2>
+          <button id="refresh-jobs" class="btn small" type="button">새로고침</button>
         </div>
         <div class="panel-body">
           <div id="active-jobs" class="job-list">
-            <div class="empty">No active jobs.</div>
+            <div class="empty">실행 중인 작업이 없습니다.</div>
           </div>
         </div>
       </div>
 
       <div class="panel">
         <div class="panel-header">
-          <h2 class="panel-title">Recent Results</h2>
+          <h2 class="panel-title">최근 결과</h2>
           <span id="recent-count" class="badge">0</span>
         </div>
         <div class="panel-body">
           <div id="recent-jobs" class="job-list">
-            <div class="empty">No recent results.</div>
+            <div class="empty">최근 결과가 없습니다.</div>
           </div>
         </div>
       </div>
 
       <div class="panel">
         <div class="panel-header">
-          <h2 class="panel-title">Schedules</h2>
-          <button id="refresh-schedules" class="btn small" type="button">Refresh</button>
+          <h2 class="panel-title">스케줄</h2>
+          <button id="refresh-schedules" class="btn small" type="button">새로고침</button>
         </div>
         <div class="panel-body">
           <div id="schedules" class="job-list">
-            <div class="empty">No schedules.</div>
+            <div class="empty">등록된 스케줄이 없습니다.</div>
           </div>
         </div>
       </div>
@@ -547,6 +567,12 @@
         entries: [],
         watchedJobs: new Set(),
         pollTimer: null
+      };
+      const outputTemplates = {
+        plex: "%(uploader)s [%(channel_id)s]/%(playlist_index)s - %(title).200B [%(id)s].%(ext)s",
+        playlist: "%(uploader)s [%(channel_id)s]/%(playlist)s [%(playlist_id)s]/%(playlist_index)s - %(title).200B [%(id)s].%(ext)s",
+        channel: "%(uploader)s [%(channel_id)s]/%(upload_date)s - %(title).200B [%(id)s].%(ext)s",
+        flat: "%(title).200B [%(id)s].%(ext)s"
       };
 
       const $ = (id) => document.getElementById(id);
@@ -598,10 +624,35 @@
       }
 
       function statusBadge(status) {
+        const label = {
+          completed: "완료",
+          success: "성공",
+          pending: "대기",
+          running: "실행 중",
+          quarantine: "격리",
+          failed: "실패",
+          canceled: "취소",
+          partial: "일부 완료",
+          no_new_items: "새 항목 없음",
+          preview: "미리 보기",
+          enabled: "사용",
+          disabled: "중지"
+        }[status] || status || "알 수 없음";
         const cls = status === "completed" || status === "success" ? "ok" :
           status === "quarantine" || status === "failed" ? "err" :
-          status === "canceled" ? "warn" : "";
-        return `<span class="badge ${cls}">${escapeHtml(status || "unknown")}</span>`;
+          status === "canceled" || status === "partial" || status === "no_new_items" ? "warn" : "";
+        return `<span class="badge ${cls}">${escapeHtml(label)}</span>`;
+      }
+
+      function reasonLabel(reason) {
+        return {
+          already_in_archive: "이미 archive에 있음",
+          file_exists: "파일이 이미 있음",
+          private_video: "비공개 영상",
+          unavailable: "사용할 수 없는 영상",
+          live_not_ready: "라이브 대기 중",
+          members_only: "멤버십 전용"
+        }[reason] || reason || "건너뜀";
       }
 
       function escapeHtml(value) {
@@ -626,7 +677,7 @@
 
       function renderPresets(selectedName = "") {
         const presets = loadPresets().sort((a, b) => a.name.localeCompare(b.name));
-        $("preset").innerHTML = '<option value="">Manual settings</option>' + presets.map((preset) =>
+        $("preset").innerHTML = '<option value="">직접 설정</option>' + presets.map((preset) =>
           `<option value="${escapeHtml(preset.name)}">${escapeHtml(preset.name)}</option>`
         ).join("");
         $("preset").value = selectedName;
@@ -639,7 +690,7 @@
         $("format-preset").value = preset.format_preset || "best";
         $("download-mode").value = preset.download_mode || "video";
         $("archive-mode").value = preset.archive_mode || "auto";
-        $("output-template").value = preset.output_template || "%(uploader)s/%(title).200B [%(id)s].%(ext)s";
+        $("output-template").value = preset.output_template || outputTemplates.plex;
         $("format-selector").value = preset.format_selector || "";
       }
 
@@ -658,23 +709,23 @@
 
       function saveCurrentPreset() {
         const existingName = $("preset").value;
-        const typedName = prompt("Preset name", existingName || "");
+        const typedName = prompt("프리셋 이름", existingName || "");
         const name = (typedName || "").trim();
         if (!name) return;
         const presets = loadPresets().filter((preset) => preset.name !== name);
         presets.push(currentPresetData(name));
         savePresets(presets);
         renderPresets(name);
-        toast(`Preset saved: ${name}`);
+        toast(`프리셋 저장됨: ${name}`);
       }
 
       function deleteCurrentPreset() {
         const name = $("preset").value;
-        if (!name) return toast("Select a preset first.", true);
+        if (!name) return toast("삭제할 프리셋을 먼저 선택하세요.", true);
         const presets = loadPresets().filter((preset) => preset.name !== name);
         savePresets(presets);
         renderPresets("");
-        toast(`Preset deleted: ${name}`);
+        toast(`프리셋 삭제됨: ${name}`);
       }
 
       function payloadBase() {
@@ -732,8 +783,8 @@
       function renderMetadata(metadata) {
         const root = $("metadata");
         if (!metadata) {
-          root.innerHTML = '<div class="empty">No metadata loaded.</div>';
-          $("metadata-badge").textContent = "Not analyzed";
+          root.innerHTML = '<div class="empty">아직 분석 결과가 없습니다.</div>';
+          $("metadata-badge").textContent = "분석 전";
           return;
         }
         $("metadata-badge").textContent = metadata.kind || "metadata";
@@ -744,14 +795,14 @@
           <div class="summary">
             ${thumb}
             <div>
-              <h3 class="title">${escapeHtml(metadata.title || metadata.webpage_url || "Untitled")}</h3>
+              <h3 class="title">${escapeHtml(metadata.title || metadata.webpage_url || "제목 없음")}</h3>
               <div class="meta">
                 <span class="badge">${escapeHtml(metadata.kind || "unknown")}</span>
                 <span>${escapeHtml(metadata.extractor || "-")}</span>
                 <span>${formatDuration(metadata.duration)}</span>
                 ${metadata.uploader ? `<span>${escapeHtml(metadata.uploader)}</span>` : ""}
-                ${metadata.entries_count ? `<span>${metadata.entries_count} entries</span>` : ""}
-                ${metadata.entries_truncated ? '<span class="badge warn">truncated</span>' : ""}
+                ${metadata.entries_count ? `<span>${metadata.entries_count}개 항목</span>` : ""}
+                ${metadata.entries_truncated ? '<span class="badge warn">일부만 표시</span>' : ""}
               </div>
             </div>
           </div>
@@ -786,36 +837,36 @@
 
       async function analyze() {
         const payload = payloadBase();
-        if (!payload.url) return toast("URL is required.", true);
+        if (!payload.url) return toast("URL을 입력하세요.", true);
         payload.metadata_only = true;
         payload.metadata_limit = Number($("metadata-limit").value || 50);
         $("analyze").disabled = true;
-        $("ready-badge").textContent = "Analyzing";
+        $("ready-badge").textContent = "분석 중";
         try {
           const created = await createJob(payload);
           state.watchedJobs.add(created.job_id);
           renderJobs();
           const job = await waitForJob(created.job_id, renderJobs);
           if (job.status !== "completed" && job.status !== "success") {
-            throw new Error(`metadata job ended as ${job.status}`);
+            throw new Error(`분석 작업 상태: ${job.status}`);
           }
           const metadata = job.result?.metadata;
           state.metadata = metadata || null;
           renderMetadata(state.metadata);
           renderEntries(state.metadata?.entries || []);
-          toast("Metadata loaded.");
+          toast("분석 결과를 불러왔습니다.");
         } catch (error) {
           toast(error.message, true);
         } finally {
           $("analyze").disabled = false;
-          $("ready-badge").textContent = "Idle";
+          $("ready-badge").textContent = "대기 중";
           renderJobs();
         }
       }
 
       async function download() {
         const payload = payloadBase();
-        if (!payload.url) return toast("URL is required.", true);
+        if (!payload.url) return toast("URL을 입력하세요.", true);
         const entries = selectedEntries();
         if (entries.length) {
           payload.allow_playlist = true;
@@ -825,7 +876,7 @@
         try {
           const created = await createJob(payload);
           state.watchedJobs.add(created.job_id);
-          toast(`Job created: ${created.job_id}`);
+          toast(`작업 생성됨: ${created.job_id}`);
           renderJobs();
         } catch (error) {
           toast(error.message, true);
@@ -836,7 +887,7 @@
 
       async function dryRun() {
         const payload = payloadBase();
-        if (!payload.url) return toast("URL is required.", true);
+        if (!payload.url) return toast("URL을 입력하세요.", true);
         payload.dry_run = true;
         payload.metadata_limit = Number($("metadata-limit").value || 50);
         const entries = selectedEntries();
@@ -849,9 +900,9 @@
           const created = await createJob(payload);
           state.watchedJobs.add(created.job_id);
           const job = await waitForJob(created.job_id, renderJobs);
-          if (job.status !== "completed" && job.status !== "success") throw new Error(`dry run ended as ${job.status}`);
+          if (job.status !== "completed" && job.status !== "success") throw new Error(`미리 보기 작업 상태: ${job.status}`);
           const result = job.result || {};
-          toast(`Dry run: ${result.will_download?.length || 0} download, ${result.will_skip?.length || 0} skip`);
+          toast(`미리 보기: 다운로드 ${result.will_download?.length || 0}개, 건너뜀 ${result.will_skip?.length || 0}개`);
           renderJobs();
         } catch (error) {
           toast(error.message, true);
@@ -863,8 +914,8 @@
       async function createSchedule() {
         const cron = $("schedule-cron").value.trim();
         const payload = payloadBase();
-        if (!payload.url) return toast("URL is required.", true);
-        if (!cron) return toast("Schedule cron is required.", true);
+        if (!payload.url) return toast("URL을 입력하세요.", true);
+        if (!cron) return toast("스케줄 Cron을 입력하세요.", true);
         const id = `ytdlp_${payload.collection}_${Date.now()}`;
         payload.allow_playlist = true;
         payload.schedule_id = id;
@@ -873,7 +924,7 @@
             method: "POST",
             body: JSON.stringify({ id, plugin, cron, enabled: true, payload })
           });
-          toast(`Schedule created: ${id}`);
+          toast(`스케줄 생성됨: ${id}`);
           renderSchedules();
         } catch (error) {
           toast(error.message, true);
@@ -883,7 +934,7 @@
       async function cancelJob(jobId) {
         try {
           await api(`/jobs/${jobId}/cancel`, { method: "POST", body: "{}" });
-          toast(`Cancel requested: ${jobId}`);
+          toast(`취소 요청됨: ${jobId}`);
           renderJobs();
         } catch (error) {
           toast(error.message, true);
@@ -905,7 +956,7 @@
             <div class="job">
               <div class="job-head">
                 ${statusBadge(schedule.enabled === false ? "disabled" : "enabled")}
-                <button class="btn small" data-toggle-schedule="${escapeHtml(schedule.id)}" data-enabled="${schedule.enabled === false ? "true" : "false"}" type="button">${schedule.enabled === false ? "Enable" : "Disable"}</button>
+                <button class="btn small" data-toggle-schedule="${escapeHtml(schedule.id)}" data-enabled="${schedule.enabled === false ? "true" : "false"}" type="button">${schedule.enabled === false ? "사용" : "중지"}</button>
               </div>
               <div class="job-id">${escapeHtml(schedule.id)}</div>
               <div class="job-meta">
@@ -914,7 +965,7 @@
                 <span>${escapeHtml(schedule.payload?.relative_path || "")}</span>
               </div>
             </div>
-          `).join("") : '<div class="empty">No schedules.</div>';
+          `).join("") : '<div class="empty">등록된 스케줄이 없습니다.</div>';
           document.querySelectorAll("[data-toggle-schedule]").forEach((button) => {
             button.addEventListener("click", async () => {
               await api(`/admin/schedules/${button.dataset.toggleSchedule}`, {
@@ -940,26 +991,50 @@
         const progress = job.progress || {};
         const percent = jobPercent(job);
         const files = job.result?.files || [];
+        const willDownload = job.result?.will_download || [];
+        const willSkip = job.result?.will_skip || [];
+        const skipped = job.result?.skipped || [];
+        const resultStatus = job.result?.status;
         const canCancel = job.status === "pending" || job.status === "running";
         return `
           <div class="job">
             <div class="job-head">
-              ${statusBadge(job.status)}
-              ${canCancel ? `<button class="btn danger small" data-cancel="${escapeHtml(job.id)}" type="button">Cancel</button>` : ""}
+              ${statusBadge(resultStatus || job.status)}
+              ${canCancel ? `<button class="btn danger small" data-cancel="${escapeHtml(job.id)}" type="button">취소</button>` : ""}
             </div>
             <div class="job-id">${escapeHtml(job.id)}</div>
             ${compact ? "" : `<div class="progress" aria-label="progress"><span style="width:${percent}%"></span></div>`}
             <div class="job-meta">
               <span>${percent.toFixed(percent % 1 ? 1 : 0)}%</span>
               ${progress.speed ? `<span>${escapeHtml(progress.speed)}</span>` : ""}
-              ${progress.eta ? `<span>ETA ${escapeHtml(progress.eta)}</span>` : ""}
+              ${progress.eta ? `<span>남은 시간 ${escapeHtml(progress.eta)}</span>` : ""}
               ${job.result?.mode ? `<span>${escapeHtml(job.result.mode)}</span>` : ""}
               ${job.result?.format_preset ? `<span>${escapeHtml(job.result.format_preset)}</span>` : ""}
+              ${Number.isInteger(job.result?.downloaded_count) ? `<span>다운로드 ${job.result.downloaded_count}개</span>` : ""}
+              ${Number.isInteger(job.result?.skipped_count) ? `<span>건너뜀 ${job.result.skipped_count}개</span>` : ""}
             </div>
             ${files.length ? `<div class="files">${files.map((file) => `
               <div class="file">
                 <span>${escapeHtml(file.title || file.path)}</span>
                 <span>${escapeHtml(file.ext || "")} ${formatBytes(file.size)}</span>
+              </div>
+            `).join("")}</div>` : ""}
+            ${willDownload.length ? `<div class="files">${willDownload.slice(0, 8).map((item) => `
+              <div class="file">
+                <span>받을 예정: ${escapeHtml(item.title || item.id || "-")}</span>
+                <span>${escapeHtml(item.id || "")}</span>
+              </div>
+            `).join("")}</div>` : ""}
+            ${willSkip.length ? `<div class="files">${willSkip.slice(0, 8).map((item) => `
+              <div class="file">
+                <span>건너뜀: ${escapeHtml(item.title || item.id || "-")}</span>
+                <span>${escapeHtml(reasonLabel(item.reason))}</span>
+              </div>
+            `).join("")}</div>` : ""}
+            ${skipped.length ? `<div class="files">${skipped.slice(0, 8).map((item) => `
+              <div class="file">
+                <span>건너뜀: ${escapeHtml(item.title || item.id || "-")}</span>
+                <span>${escapeHtml(reasonLabel(item.reason))}</span>
               </div>
             `).join("")}</div>` : ""}
           </div>
@@ -973,10 +1048,10 @@
           const recent = jobs.filter((job) => !active.includes(job)).slice(0, 8);
           $("active-jobs").innerHTML = active.length
             ? active.map((job) => renderJob(job)).join("")
-            : '<div class="empty">No active jobs.</div>';
+            : '<div class="empty">실행 중인 작업이 없습니다.</div>';
           $("recent-jobs").innerHTML = recent.length
             ? recent.map((job) => renderJob(job, true)).join("")
-            : '<div class="empty">No recent results.</div>';
+            : '<div class="empty">최근 결과가 없습니다.</div>';
           $("recent-count").textContent = String(recent.length);
           document.querySelectorAll("[data-cancel]").forEach((button) => {
             button.addEventListener("click", () => cancelJob(button.dataset.cancel));
@@ -1015,16 +1090,29 @@
           $("format-preset").value = "audio";
         }
       });
+      $("template-preset").addEventListener("change", () => {
+        const preset = $("template-preset").value;
+        if (preset !== "custom" && outputTemplates[preset]) {
+          $("output-template").value = outputTemplates[preset];
+        }
+      });
+      $("output-template").addEventListener("input", () => {
+        $("template-preset").value = "custom";
+      });
       $("collection").addEventListener("change", () => {
         const value = $("collection").value;
         if (value === "plex") {
           $("relative-path").value = "youtube";
           $("format-preset").value = "best";
           $("archive-mode").value = "auto";
+          $("template-preset").value = "plex";
+          $("output-template").value = outputTemplates.plex;
         } else if (value === "shorts") {
           $("relative-path").value = "raw";
           $("format-preset").value = "1080p";
           $("archive-mode").value = "auto";
+          $("template-preset").value = "channel";
+          $("output-template").value = outputTemplates.channel;
         } else {
           $("relative-path").value = "yt_dlp_downloader";
         }

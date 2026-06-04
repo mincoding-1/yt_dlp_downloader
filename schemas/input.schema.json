@@ -4,7 +4,7 @@
     {
       "key": "url",
       "type": "string",
-      "label": "url",
+      "label": "URL",
       "required": true
     },
     {
@@ -16,79 +16,79 @@
     {
       "key": "relative_path",
       "type": "string",
-      "label": "Relative path",
+      "label": "상대 저장 경로",
       "required": false
     },
     {
       "key": "output_template",
       "type": "string",
-      "label": "Filename template",
+      "label": "파일명 템플릿",
       "required": false
     },
     {
       "key": "timeout",
       "type": "number",
-      "label": "Timeout seconds",
+      "label": "제한 시간(초)",
       "required": false
     },
     {
       "key": "metadata_only",
       "type": "boolean",
-      "label": "Metadata only",
+      "label": "메타데이터만 조회",
       "required": false
     },
     {
       "key": "dry_run",
       "type": "boolean",
-      "label": "Dry run",
+      "label": "미리 보기",
       "required": false
     },
     {
       "key": "allow_playlist",
       "type": "boolean",
-      "label": "Allow playlist",
+      "label": "재생목록 허용",
       "required": false
     },
     {
       "key": "metadata_limit",
       "type": "number",
-      "label": "Metadata item limit",
+      "label": "메타데이터 항목 수",
       "required": false
     },
     {
       "key": "format_preset",
       "type": "string",
-      "label": "Format preset",
+      "label": "화질 프리셋",
       "required": false
     },
     {
       "key": "format_selector",
       "type": "string",
-      "label": "Custom format selector",
+      "label": "사용자 포맷 선택자",
       "required": false
     },
     {
       "key": "download_mode",
       "type": "string",
-      "label": "Download mode",
+      "label": "다운로드 모드",
       "required": false
     },
     {
       "key": "audio_format",
       "type": "string",
-      "label": "Audio format",
+      "label": "오디오 형식",
       "required": false
     },
     {
       "key": "selected_entries",
       "type": "array",
-      "label": "Selected playlist entries",
+      "label": "선택한 재생목록 항목",
       "required": false
     },
     {
       "key": "archive_mode",
       "type": "string",
-      "label": "Archive mode",
+      "label": "Archive 모드",
       "required": false
     },
     {

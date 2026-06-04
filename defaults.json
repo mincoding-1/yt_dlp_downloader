@@ -1,7 +1,7 @@
 {
   "collection": "custom",
   "relative_path": "yt_dlp_downloader",
-  "output_template": "%(uploader)s/%(title).200B [%(id)s].%(ext)s",
+  "output_template": "%(uploader)s [%(channel_id)s]/%(playlist_index)s - %(title).200B [%(id)s].%(ext)s",
   "timeout": 1800,
   "metadata_only": false,
   "dry_run": false,
