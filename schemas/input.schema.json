@@ -8,9 +8,15 @@
       "required": true
     },
     {
-      "key": "output_path",
+      "key": "collection",
       "type": "string",
-      "label": "Output directory",
+      "label": "Collection",
+      "required": false
+    },
+    {
+      "key": "relative_path",
+      "type": "string",
+      "label": "Relative path",
       "required": false
     },
     {
@@ -29,6 +35,12 @@
       "key": "metadata_only",
       "type": "boolean",
       "label": "Metadata only",
+      "required": false
+    },
+    {
+      "key": "dry_run",
+      "type": "boolean",
+      "label": "Dry run",
       "required": false
     },
     {
@@ -71,6 +83,24 @@
       "key": "selected_entries",
       "type": "array",
       "label": "Selected playlist entries",
+      "required": false
+    },
+    {
+      "key": "archive_mode",
+      "type": "string",
+      "label": "Archive mode",
+      "required": false
+    },
+    {
+      "key": "archive_id",
+      "type": "string",
+      "label": "Archive ID",
+      "required": false
+    },
+    {
+      "key": "schedule_id",
+      "type": "string",
+      "label": "Schedule ID",
       "required": false
     }
   ]

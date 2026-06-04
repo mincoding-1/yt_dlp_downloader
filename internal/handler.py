@@ -1,9 +1,13 @@
 import os
 import re
+import shutil
 import signal
 import subprocess
 import time
+import json
+import hashlib
 from pathlib import Path
+from pathlib import PurePosixPath
 from urllib.parse import urlparse
 
 from core.config import STATE_ROOT
@@ -17,13 +21,20 @@ from core.plugin_logging import (
 )
 
 ALLOWED_OUTPUT_ROOT = Path(os.getenv("HANIS_DOWNLOAD_ROOT", "/var/lib/hanis/downloads"))
-DEFAULT_OUTPUT_ROOT = ALLOWED_OUTPUT_ROOT / "yt_dlp_downloader"
+DEFAULT_COLLECTION = "custom"
+DEFAULT_RELATIVE_PATH = "yt_dlp_downloader"
 YT_DLP_PATH = Path("/opt/hanis-tools/current/yt-dlp")
 MAX_STDIO_CHARS = 4000
 MAX_ERROR_CHARS = 1000
-DEFAULT_OUTPUT_TEMPLATE = "%(title).200B [%(id)s].%(ext)s"
+DEFAULT_OUTPUT_TEMPLATE = "%(uploader)s/%(title).200B [%(id)s].%(ext)s"
 MAX_METADATA_ENTRIES = 100
 DEFAULT_METADATA_ENTRIES = 50
+ARCHIVE_ROOT = STATE_ROOT / "data" / "yt_dlp_downloader" / "archive"
+SNAPSHOT_ROOT = STATE_ROOT / "data" / "yt_dlp_downloader" / "snapshots"
+STATS_ROOT = STATE_ROOT / "data" / "yt_dlp_downloader" / "schedules"
+ARCHIVE_LEASE_TTL = int(os.getenv("HANIS_YTDLP_ARCHIVE_LEASE_TTL", "7200"))
+COLLECTION_RE = re.compile(r"^[a-z0-9_-]{1,64}$")
+SAFE_ID_RE = re.compile(r"[^A-Za-z0-9._-]+")
 FORMAT_PRESETS = {
     "best": "bestvideo+bestaudio/best",
     "1080p": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
@@ -31,8 +42,18 @@ FORMAT_PRESETS = {
     "480p": "bestvideo[height<=480]+bestaudio/best[height<=480]/best",
     "audio": "bestaudio/best",
 }
+JS_RUNTIME = shutil.which("node")
 
 _CURRENT_PROC = None
+
+ERROR_MAPPING = [
+    (re.compile(r"private video|members-only|sign in to confirm|video unavailable", re.I), False, "unavailable"),
+    (re.compile(r"unsupported url|no suitable extractor", re.I), False, "unsupported_url"),
+    (re.compile(r"requested format is not available", re.I), False, "format_unavailable"),
+    (re.compile(r"http error 429|too many requests|rate.?limit", re.I), True, "rate_limited"),
+    (re.compile(r"timed out|temporary failure|connection reset|network is unreachable", re.I), True, "network"),
+    (re.compile(r"ffmpeg.*not installed|ffmpeg.*not found", re.I), False, "missing_ffmpeg"),
+]
 
 
 def _validate_url(value: str) -> str:
@@ -45,27 +66,41 @@ def _validate_url(value: str) -> str:
     return url
 
 
-def _resolve_output_dir(value: str | None) -> Path:
-    if value is None or not str(value).strip():
-        target = DEFAULT_OUTPUT_ROOT
-    else:
-        raw = str(value).strip()
-        if "\x00" in raw:
-            raise PermanentError("output_path contains invalid null byte")
-        target = Path(raw)
-        if not target.is_absolute():
-            target = DEFAULT_OUTPUT_ROOT / target
+def _validate_collection(value: str | None) -> str:
+    collection = str(value or DEFAULT_COLLECTION).strip().lower()
+    if not COLLECTION_RE.fullmatch(collection):
+        raise PermanentError("collection must match ^[a-z0-9_-]{1,64}$")
+    return collection
 
+
+def _validate_relative_path(value: str | None) -> str:
+    raw = str(value or DEFAULT_RELATIVE_PATH).strip()
+    if not raw or raw == ".":
+        raw = DEFAULT_RELATIVE_PATH
+    if "\x00" in raw:
+        raise PermanentError("relative_path contains invalid null byte")
+    posix = PurePosixPath(raw)
+    if posix.is_absolute() or any(part in {"", ".", ".."} for part in posix.parts):
+        raise PermanentError("relative_path must be a safe relative POSIX path")
+    if len(str(posix)) > 240:
+        raise PermanentError("relative_path is too long")
+    return str(posix)
+
+
+def _resolve_output_dir(payload: dict) -> tuple[Path, str, str]:
+    if payload.get("output_path"):
+        raise PermanentError("output_path is no longer supported; use collection and relative_path")
+    collection = _validate_collection(payload.get("collection"))
+    relative_path = _validate_relative_path(payload.get("relative_path"))
+    target = ALLOWED_OUTPUT_ROOT / collection / relative_path
     resolved = target.expanduser().resolve(strict=False)
-    if any(part == ".." for part in target.parts):
-        raise PermanentError("output_path must not contain '..'")
     allowed_root = ALLOWED_OUTPUT_ROOT.resolve(strict=False)
     if not (resolved == allowed_root or allowed_root in resolved.parents):
-        raise PermanentError(f"output_path must be under {allowed_root}")
+        raise PermanentError(f"resolved output path must be under {allowed_root}")
     if resolved.exists() and not resolved.is_dir():
-        raise PermanentError("output_path must be a directory")
+        raise PermanentError("resolved output path must be a directory")
     resolved.mkdir(parents=True, exist_ok=True)
-    return resolved
+    return resolved, collection, relative_path
 
 
 def _resolve_output_template(value: str | None) -> str:
@@ -74,14 +109,17 @@ def _resolve_output_template(value: str | None) -> str:
     template = str(value).strip()
     if "\x00" in template:
         raise PermanentError("output_template contains invalid null byte")
-    if "/" in template or "\\" in template:
-        raise PermanentError("output_template must be a filename template, not a path")
-    if ".." in template:
-        raise PermanentError("output_template must not contain '..'")
+    if "\\" in template:
+        raise PermanentError("output_template must use POSIX separators")
+    posix = PurePosixPath(template)
+    if posix.is_absolute() or any(part in {"", ".", ".."} for part in posix.parts):
+        raise PermanentError("output_template must be a safe relative yt-dlp template")
     if len(template) > 240:
         raise PermanentError("output_template is too long")
     if "%(" not in template:
         raise PermanentError("output_template must include yt-dlp fields such as %(title)s")
+    if "%(id)" not in template:
+        raise PermanentError("output_template must include %(id)s to avoid filename collisions")
     return template
 
 
@@ -158,6 +196,80 @@ def _resolve_yt_dlp() -> str:
     return str(resolved)
 
 
+def _safe_id(value: str) -> str:
+    cleaned = SAFE_ID_RE.sub("_", str(value).strip()).strip("._-")
+    return cleaned[:160] or "unknown"
+
+
+def build_archive_key(extractor_key: str, entity_type: str, entity_id: str) -> str:
+    return _safe_id(f"{extractor_key}_{entity_type}_{entity_id}")
+
+
+def _entity_from_metadata(metadata: dict, url: str) -> tuple[str, str, str]:
+    extractor = str(metadata.get("extractor_key") or metadata.get("extractor") or "unknown").split(":")[0].lower()
+    extractor = _safe_id(extractor)
+    playlist_id = metadata.get("playlist_id") or (metadata.get("id") if _classify_metadata(metadata) == "playlist" else None)
+    if playlist_id:
+        return extractor, "playlist", str(playlist_id)
+    channel_id = metadata.get("channel_id")
+    if channel_id:
+        return extractor, "channel", str(channel_id)
+    uploader_id = metadata.get("uploader_id")
+    if uploader_id:
+        return extractor, "uploader", str(uploader_id)
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+    return extractor, "urlhash", digest
+
+
+def _resolve_archive(payload: dict, metadata: dict, url: str) -> tuple[str | None, Path | None]:
+    mode = str(payload.get("archive_mode") or "disabled").strip().lower()
+    if mode in {"", "disabled", "off", "false"}:
+        return None, None
+    if mode not in {"auto", "custom"}:
+        raise PermanentError("archive_mode must be auto, custom, or disabled")
+    if mode == "custom":
+        raw_archive_id = str(payload.get("archive_id") or "").strip()
+        if not raw_archive_id:
+            raise PermanentError("archive_id is required when archive_mode is custom")
+        archive_id = _safe_id(raw_archive_id)
+    else:
+        archive_id = build_archive_key(*_entity_from_metadata(metadata, url))
+    ARCHIVE_ROOT.mkdir(parents=True, exist_ok=True)
+    return archive_id, ARCHIVE_ROOT / f"{archive_id}.txt"
+
+
+def _archive_lease_id(archive_id: str) -> str:
+    return f"archive_{archive_id}.json"
+
+
+def _acquire_archive_lease(payload: dict, archive_id: str) -> str:
+    from core.write_queue.coordination_lease import acquire_lease, break_stale_lease, read_lease
+
+    lease_id = _archive_lease_id(archive_id)
+    worker_id = str(payload.get("job_id") or payload.get("idempotency_key") or os.getpid())
+    current = read_lease(lease_id)
+    if current.get("valid") and time.time() - float(current.get("created_at", 0)) > ARCHIVE_LEASE_TTL:
+        break_stale_lease(lease_id)
+    ok = acquire_lease(lease_id, worker_id, {
+        "archive_id": archive_id,
+        "plugin": "yt_dlp_downloader",
+        "ttl": ARCHIVE_LEASE_TTL,
+    })
+    if not ok:
+        err = TransientError(f"archive is locked: {archive_id}")
+        err.retryable = True
+        raise err
+    return lease_id
+
+
+def _release_archive_lease(lease_id: str | None):
+    if not lease_id:
+        return
+    from core.write_queue.coordination_lease import release_lease
+
+    release_lease(lease_id)
+
+
 def _classify_metadata(metadata: dict) -> str:
     if isinstance(metadata.get("entries"), list):
         extractor = str(metadata.get("extractor_key") or metadata.get("extractor") or "").lower()
@@ -221,6 +333,132 @@ def _normalize_metadata(metadata: dict, limit: int) -> dict:
     }
 
 
+def _archive_contains(archive_path: Path | None, video_id: str | None) -> bool:
+    if not archive_path or not video_id or not archive_path.exists():
+        return False
+    needle = str(video_id)
+    try:
+        with open(archive_path, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split()
+                if parts and parts[-1] == needle:
+                    return True
+    except OSError:
+        return False
+    return False
+
+
+def _preview_items(metadata: dict, archive_path: Path | None, limit: int) -> dict:
+    raw_entries = metadata.get("entries")
+    if isinstance(raw_entries, list):
+        entries = [_normalize_entry(entry, index) for index, entry in enumerate(raw_entries[:limit], start=1) if isinstance(entry, dict)]
+    else:
+        entries = [{
+            "index": 1,
+            "id": metadata.get("id"),
+            "title": metadata.get("title") or metadata.get("id") or "Item 1",
+            "duration": metadata.get("duration"),
+            "url": metadata.get("webpage_url") or metadata.get("original_url"),
+            "thumbnail": metadata.get("thumbnail"),
+            "uploader": metadata.get("uploader") or metadata.get("channel"),
+        }]
+    will_download = []
+    will_skip = []
+    for entry in entries:
+        if _archive_contains(archive_path, entry.get("id")):
+            will_skip.append({**entry, "reason": "already in archive"})
+        else:
+            will_download.append(entry)
+    return {
+        "will_download": will_download,
+        "will_skip": will_skip,
+    }
+
+
+def _write_snapshot(payload: dict, metadata: dict, archive_id: str | None, counts: dict):
+    schedule_id = str(payload.get("schedule_id") or payload.get("idempotency_key") or payload.get("job_id") or "manual")
+    safe_schedule = _safe_id(schedule_id)
+    target_dir = SNAPSHOT_ROOT / safe_schedule
+    target_dir.mkdir(parents=True, exist_ok=True)
+    data = {
+        "checked_at": time.time(),
+        "archive_id": archive_id,
+        "playlist_id": metadata.get("playlist_id") or metadata.get("id"),
+        "kind": _classify_metadata(metadata),
+        "entries": len(metadata.get("entries") or []),
+        **counts,
+    }
+    latest = target_dir / "latest.json"
+    tmp = latest.with_suffix(".json.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, latest)
+    rotated = target_dir / f"{int(data['checked_at'])}.json"
+    with open(rotated, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    old = sorted(p for p in target_dir.glob("*.json") if p.name != "latest.json")
+    for path in old[:-10]:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+def _update_schedule_failures(payload: dict, failed: bool, retryable: bool):
+    schedule_id = payload.get("schedule_id")
+    if not schedule_id:
+        return
+    safe_schedule = _safe_id(str(schedule_id))
+    STATS_ROOT.mkdir(parents=True, exist_ok=True)
+    path = STATS_ROOT / f"{safe_schedule}.json"
+    data = {}
+    if path.exists():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+    if failed and not retryable:
+        data["consecutive_failures"] = int(data.get("consecutive_failures") or 0) + 1
+        data["last_failure_at"] = time.time()
+    elif not failed:
+        data["consecutive_failures"] = 0
+        data["last_success_at"] = time.time()
+    data["schedule_id"] = str(schedule_id)
+    tmp = path.with_suffix(".json.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    if int(data.get("consecutive_failures") or 0) >= 5:
+        try:
+            from core.scheduler import set_schedule_enabled
+
+            set_schedule_enabled(str(schedule_id), False, reason="yt_dlp_downloader consecutive permanent failures")
+        except Exception:
+            plugin_log(payload, "[yt_dlp_downloader] failed to disable schedule after permanent failures")
+
+
+def _classify_yt_dlp_error(output: str) -> tuple[bool, str]:
+    for pattern, retryable, reason in ERROR_MAPPING:
+        if pattern.search(output or ""):
+            return retryable, reason
+    return True, "yt_dlp_failed"
+
+
+def _raise_yt_dlp_error(payload: dict, output: str):
+    retryable, reason = _classify_yt_dlp_error(output)
+    summary = _error_summary(output)
+    exc_cls = TransientError if retryable else PermanentError
+    err = exc_cls(f"yt-dlp failed ({reason}): {summary}")
+    err.retryable = retryable
+    _update_schedule_failures(payload, failed=True, retryable=retryable)
+    raise err
+
+
 def _tail(value: str) -> str:
     if not value:
         return ""
@@ -243,7 +481,7 @@ def _error_summary(value: str) -> str:
 
 def _snapshot_files(output_dir: Path) -> dict[str, tuple[int, int]]:
     files = {}
-    for path in output_dir.iterdir():
+    for path in output_dir.rglob("*"):
         if not path.is_file():
             continue
         try:
@@ -256,7 +494,7 @@ def _snapshot_files(output_dir: Path) -> dict[str, tuple[int, int]]:
 
 def _collect_changed_files(output_dir: Path, before: dict[str, tuple[int, int]]) -> list[dict]:
     files = []
-    for path in output_dir.iterdir():
+    for path in output_dir.rglob("*"):
         if not path.is_file():
             continue
         if path.suffix in {".part", ".ytdl", ".tmp"}:
@@ -450,11 +688,7 @@ def _metadata_lookup(payload: dict, binary: str, url: str, output_dir: Path, tim
     except subprocess.TimeoutExpired:
         raise TransientError(f"yt-dlp metadata lookup timed out after {timeout}s")
     if result.returncode != 0:
-        raise TransientError(
-            "yt-dlp metadata lookup failed: "
-            f"{_error_summary(result.stderr)}"
-        )
-    import json
+        _raise_yt_dlp_error(payload, result.stderr)
     try:
         metadata = json.loads(result.stdout)
     except Exception:
@@ -468,12 +702,54 @@ def _metadata_lookup(payload: dict, binary: str, url: str, output_dir: Path, tim
     }
 
 
+def _extract_metadata(payload: dict, binary: str, url: str, output_dir: Path, timeout: int) -> dict:
+    limit = _metadata_limit(payload)
+    cmd = [
+        binary,
+        "--dump-single-json",
+        "--skip-download",
+        "--no-warnings",
+        "--flat-playlist",
+        "--playlist-end",
+        str(limit),
+        url,
+    ]
+    try:
+        result = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout,
+            env={
+                "PATH": "/opt/hanis-tools/current:/usr/local/bin:/usr/bin:/bin",
+                "HOME": str(output_dir),
+                "LANG": "C",
+                "LC_ALL": "C",
+            },
+        )
+    except subprocess.TimeoutExpired:
+        err = TransientError(f"yt-dlp metadata lookup timed out after {timeout}s")
+        err.retryable = True
+        raise err
+    if result.returncode != 0:
+        _raise_yt_dlp_error(payload, result.stderr)
+    try:
+        return json.loads(result.stdout)
+    except Exception:
+        err = TransientError("yt-dlp metadata lookup returned invalid JSON")
+        err.retryable = True
+        raise err
+
+
 def execute(payload: dict):
     """
     payload example:
 {
     "url": "example",
-    "output_path": "example"
+    "collection": "custom",
+    "relative_path": "yt_dlp_downloader"
 }
     """
 
@@ -482,7 +758,7 @@ def execute(payload: dict):
         raise PermanentError("payload must be dict")
 
     url = _validate_url(payload.get("url"))
-    output_dir = _resolve_output_dir(payload.get("output_path"))
+    output_dir, collection, relative_path = _resolve_output_dir(payload)
     output_template_name = _resolve_output_template(payload.get("output_template"))
     binary = _resolve_yt_dlp()
     before_files = _snapshot_files(output_dir)
@@ -491,6 +767,33 @@ def execute(payload: dict):
     timeout = max(1, min(timeout, 3600))
     if payload.get("metadata_only"):
         return _metadata_lookup(payload, binary, url, output_dir, timeout)
+
+    metadata = _extract_metadata(payload, binary, url, output_dir, min(timeout, 300))
+    archive_id, archive_path = _resolve_archive(payload, metadata, url)
+    if payload.get("dry_run"):
+        preview = _preview_items(metadata, archive_path, _metadata_limit(payload))
+        normalized = _normalize_metadata(metadata, _metadata_limit(payload))
+        _write_snapshot(
+            payload,
+            metadata,
+            archive_id,
+            {
+                "downloaded_count": 0,
+                "skipped_count": len(preview["will_skip"]),
+                "will_download_count": len(preview["will_download"]),
+            },
+        )
+        return {
+            "success": True,
+            "mode": "dry_run",
+            "status": "no_new_items" if not preview["will_download"] else "preview",
+            "collection": collection,
+            "relative_path": relative_path,
+            "output_dir": str(output_dir),
+            "archive_id": archive_id,
+            "metadata": normalized,
+            **preview,
+        }
 
     output_template = str(output_dir / output_template_name)
     timeout = int(payload.get("timeout") or 1800)
@@ -516,6 +819,10 @@ def execute(payload: dict):
         "-o",
         output_template,
     ]
+    if archive_path:
+        cmd.extend(["--download-archive", str(archive_path)])
+    if JS_RUNTIME:
+        cmd.extend(["--js-runtimes", "node"])
     if selected_entries:
         cmd.extend(["--playlist-items", selected_entries])
     if not allow_playlist:
@@ -527,28 +834,55 @@ def execute(payload: dict):
     plugin_log(
         payload,
         "[yt_dlp_downloader] start "
-        f"output_dir={output_dir} template={output_template_name} "
+        f"collection={collection} relative_path={relative_path} output_dir={output_dir} template={output_template_name} "
         f"format_preset={format_preset} selected_entries={selected_entries or '-'}",
     )
-    rc, combined_output, duration = _run_yt_dlp(payload, cmd, output_dir, timeout)
-    if rc != 0:
-        plugin_log(payload, f"[yt_dlp_downloader] failed rc={rc}")
-        _write_progress(payload, {"status": "failed", "error": _error_summary(combined_output)})
-        raise TransientError(
-            "yt-dlp failed: "
-            f"{_error_summary(combined_output)}"
-        )
+    lease_id = None
+    try:
+        if archive_id:
+            lease_id = _acquire_archive_lease(payload, archive_id)
+        rc, combined_output, duration = _run_yt_dlp(payload, cmd, output_dir, timeout)
+        if rc != 0:
+            plugin_log(payload, f"[yt_dlp_downloader] failed rc={rc}")
+            _write_progress(payload, {"status": "failed", "error": _error_summary(combined_output)})
+            _raise_yt_dlp_error(payload, combined_output)
+    finally:
+        _release_archive_lease(lease_id)
 
     files = _collect_changed_files(output_dir, before_files)
     if not files:
-        plugin_log(payload, "[yt_dlp_downloader] completed with no output files")
-        raise TransientError("yt-dlp completed but no new or changed output files were found")
+        if "has already been downloaded" in combined_output or archive_path:
+            plugin_log(payload, "[yt_dlp_downloader] completed with no new items")
+            _write_progress(payload, {"status": "completed", "percent": 100.0, "files": 0})
+            _update_schedule_failures(payload, failed=False, retryable=False)
+            _write_snapshot(payload, metadata, archive_id, {"downloaded_count": 0, "skipped_count": 0})
+            return {
+                "success": True,
+                "mode": "download",
+                "status": "no_new_items",
+                "collection": collection,
+                "relative_path": relative_path,
+                "archive_id": archive_id,
+                "output_dir": str(output_dir),
+                "files": [],
+                "duration_seconds": duration,
+                "diagnostic_tail": _tail(combined_output),
+            }
+        err = TransientError("yt-dlp completed but no new or changed output files were found")
+        err.retryable = True
+        raise err
 
     plugin_log(payload, f"[yt_dlp_downloader] completed files={len(files)} duration={duration}s")
     _write_progress(payload, {"status": "completed", "percent": 100.0, "files": len(files)})
+    _update_schedule_failures(payload, failed=False, retryable=False)
+    _write_snapshot(payload, metadata, archive_id, {"downloaded_count": len(files), "skipped_count": 0})
     return {
         "success": True,
         "mode": "download",
+        "status": "success",
+        "collection": collection,
+        "relative_path": relative_path,
+        "archive_id": archive_id,
         "download_mode": download_mode,
         "format_preset": format_preset,
         "format_selector": format_selector,

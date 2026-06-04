@@ -1,10 +1,10 @@
 {
     "name": "yt_dlp_downloader",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "entrypoint": "main.py",
     "timeout": 3600,
     "capabilities": ["process_exec", "file_write", "idempotent"],
-    "required_binaries": ["yt-dlp"],
+    "required_binaries": ["yt-dlp", "ffmpeg"],
     "input_schema": {
         "type": "object",
         "required": ["url"],
@@ -13,13 +13,17 @@
                 "type": "string",
                 "description": "단일 비디오 URL (YouTube, Vimeo 등)"
             },
-            "output_path": {
+            "collection": {
                 "type": "string",
-                "description": "저장 디렉터리. /var/lib/hanis/downloads 아래만 허용"
+                "description": "저장 collection. 예: plex, shorts, custom"
+            },
+            "relative_path": {
+                "type": "string",
+                "description": "collection 아래 상대 저장 경로"
             },
             "output_template": {
                 "type": "string",
-                "description": "yt-dlp 파일명 템플릿. 경로 구분자와 .. 금지"
+                "description": "yt-dlp 파일명 템플릿. %(id)s 필수"
             },
             "timeout": {
                 "type": "integer",
@@ -56,13 +60,31 @@
             "selected_entries": {
                 "type": "array",
                 "description": "playlist/channel에서 다운로드할 1-based 항목 index 목록"
+            },
+            "archive_mode": {
+                "type": "string",
+                "description": "disabled, auto, custom"
+            },
+            "archive_id": {
+                "type": "string",
+                "description": "archive_mode=custom일 때 사용할 archive id"
+            },
+            "dry_run": {
+                "type": "boolean",
+                "description": "다운로드하지 않고 archive 기준 다운로드/스킵 예상 결과만 반환"
+            },
+            "schedule_id": {
+                "type": "string",
+                "description": "스케줄 실행 통계 연결용 schedule id"
             }
         }
     },
     "example_payload": {
         "url": "https://media.w3.org/2010/05/sintel/trailer.mp4",
-        "output_path": "/var/lib/hanis/downloads/yt_dlp_downloader",
-        "output_template": "%(title).200B [%(id)s].%(ext)s",
+        "collection": "custom",
+        "relative_path": "yt_dlp_downloader",
+        "output_template": "%(uploader)s/%(title).200B [%(id)s].%(ext)s",
+        "archive_mode": "disabled",
         "format_preset": "best",
         "download_mode": "video"
     }

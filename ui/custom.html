@@ -81,7 +81,7 @@
 
     .url-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-columns: minmax(0, 1fr) auto auto auto;
       gap: 8px;
       align-items: center;
     }
@@ -363,11 +363,32 @@
               <input id="url" type="url" placeholder="https://media.w3.org/2010/05/sintel/trailer.mp4" required>
             </label>
             <button id="analyze" class="btn" type="button">Analyze</button>
-            <button id="download" class="btn primary" type="button">Download</button>
+            <button id="dry-run" class="btn" type="button">Dry Run</button>
+            <button id="download" class="btn primary" type="button">Run Now</button>
           </div>
 
           <div class="advanced">
             <div class="grid-3">
+              <label>
+                Collection
+                <select id="collection">
+                  <option value="plex">Plex Library</option>
+                  <option value="shorts">Shorts Source</option>
+                  <option value="custom" selected>Custom</option>
+                </select>
+              </label>
+              <label>
+                Library path
+                <input id="relative-path" type="text" value="yt_dlp_downloader">
+              </label>
+              <label>
+                Archive
+                <select id="archive-mode">
+                  <option value="disabled">Disabled</option>
+                  <option value="auto" selected>Automatic</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </label>
               <label>
                 Quality
                 <select id="format-preset">
@@ -390,17 +411,21 @@
                 Timeout
                 <input id="timeout" type="number" min="1" max="3600" value="1800">
               </label>
+              <label>
+                Schedule cron
+                <input id="schedule-cron" type="text" placeholder="*/30 * * * *">
+              </label>
             </div>
             <details>
               <summary>Advanced options</summary>
               <div class="grid-2">
                 <label>
-                  Output directory
-                  <input id="output-path" type="text" value="/var/lib/hanis/downloads/yt_dlp_downloader">
+                  Filename template
+                  <input id="output-template" type="text" value="%(uploader)s/%(title).200B [%(id)s].%(ext)s">
                 </label>
                 <label>
-                  Filename template
-                  <input id="output-template" type="text" value="%(title).200B [%(id)s].%(ext)s">
+                  Archive ID
+                  <input id="archive-id" type="text" placeholder="custom archive id">
                 </label>
                 <label>
                   Custom format selector
@@ -412,6 +437,9 @@
                 </label>
               </div>
             </details>
+            <div style="margin-top:10px">
+              <button id="create-schedule" class="btn" type="button">Create Schedule</button>
+            </div>
           </div>
         </div>
       </div>
@@ -473,6 +501,18 @@
         <div class="panel-body">
           <div id="recent-jobs" class="job-list">
             <div class="empty">No recent results.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h2 class="panel-title">Schedules</h2>
+          <button id="refresh-schedules" class="btn small" type="button">Refresh</button>
+        </div>
+        <div class="panel-body">
+          <div id="schedules" class="job-list">
+            <div class="empty">No schedules.</div>
           </div>
         </div>
       </div>
@@ -556,13 +596,17 @@
         const mode = $("download-mode").value;
         const payload = {
           url: $("url").value.trim(),
-          output_path: $("output-path").value.trim(),
+          collection: $("collection").value,
+          relative_path: $("relative-path").value.trim(),
           output_template: $("output-template").value.trim(),
           timeout: Number($("timeout").value || 1800),
           format_preset: preset,
           download_mode: mode,
+          archive_mode: $("archive-mode").value,
           allow_playlist: false
         };
+        const archiveId = $("archive-id").value.trim();
+        if (payload.archive_mode === "custom") payload.archive_id = archiveId;
         const custom = $("format-selector").value.trim();
         if (preset === "custom") payload.format_selector = custom;
         if (mode === "audio") payload.audio_format = "source";
@@ -704,6 +748,52 @@
         }
       }
 
+      async function dryRun() {
+        const payload = payloadBase();
+        if (!payload.url) return toast("URL is required.", true);
+        payload.dry_run = true;
+        payload.metadata_limit = Number($("metadata-limit").value || 50);
+        const entries = selectedEntries();
+        if (entries.length) {
+          payload.allow_playlist = true;
+          payload.selected_entries = entries;
+        }
+        $("dry-run").disabled = true;
+        try {
+          const created = await createJob(payload);
+          state.watchedJobs.add(created.job_id);
+          const job = await waitForJob(created.job_id, renderJobs);
+          if (job.status !== "completed" && job.status !== "success") throw new Error(`dry run ended as ${job.status}`);
+          const result = job.result || {};
+          toast(`Dry run: ${result.will_download?.length || 0} download, ${result.will_skip?.length || 0} skip`);
+          renderJobs();
+        } catch (error) {
+          toast(error.message, true);
+        } finally {
+          $("dry-run").disabled = false;
+        }
+      }
+
+      async function createSchedule() {
+        const cron = $("schedule-cron").value.trim();
+        const payload = payloadBase();
+        if (!payload.url) return toast("URL is required.", true);
+        if (!cron) return toast("Schedule cron is required.", true);
+        const id = `ytdlp_${payload.collection}_${Date.now()}`;
+        payload.allow_playlist = true;
+        payload.schedule_id = id;
+        try {
+          await api("/admin/schedules", {
+            method: "POST",
+            body: JSON.stringify({ id, plugin, cron, enabled: true, payload })
+          });
+          toast(`Schedule created: ${id}`);
+          renderSchedules();
+        } catch (error) {
+          toast(error.message, true);
+        }
+      }
+
       async function cancelJob(jobId) {
         try {
           await api(`/jobs/${jobId}/cancel`, { method: "POST", body: "{}" });
@@ -719,6 +809,38 @@
         return jobs
           .filter((job) => job.plugin === plugin)
           .sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      }
+
+      async function renderSchedules() {
+        try {
+          const schedules = await api("/admin/schedules");
+          const mine = schedules.filter((schedule) => schedule.plugin === plugin);
+          $("schedules").innerHTML = mine.length ? mine.map((schedule) => `
+            <div class="job">
+              <div class="job-head">
+                ${statusBadge(schedule.enabled === false ? "disabled" : "enabled")}
+                <button class="btn small" data-toggle-schedule="${escapeHtml(schedule.id)}" data-enabled="${schedule.enabled === false ? "true" : "false"}" type="button">${schedule.enabled === false ? "Enable" : "Disable"}</button>
+              </div>
+              <div class="job-id">${escapeHtml(schedule.id)}</div>
+              <div class="job-meta">
+                <span>${escapeHtml(schedule.cron || "-")}</span>
+                <span>${escapeHtml(schedule.payload?.collection || "custom")}</span>
+                <span>${escapeHtml(schedule.payload?.relative_path || "")}</span>
+              </div>
+            </div>
+          `).join("") : '<div class="empty">No schedules.</div>';
+          document.querySelectorAll("[data-toggle-schedule]").forEach((button) => {
+            button.addEventListener("click", async () => {
+              await api(`/admin/schedules/${button.dataset.toggleSchedule}`, {
+                method: "PATCH",
+                body: JSON.stringify({ enabled: button.dataset.enabled === "true" })
+              });
+              renderSchedules();
+            });
+          });
+        } catch (error) {
+          $("schedules").innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+        }
       }
 
       function jobPercent(job) {
@@ -779,8 +901,11 @@
       }
 
       $("analyze").addEventListener("click", analyze);
+      $("dry-run").addEventListener("click", dryRun);
       $("download").addEventListener("click", download);
+      $("create-schedule").addEventListener("click", createSchedule);
       $("refresh-jobs").addEventListener("click", renderJobs);
+      $("refresh-schedules").addEventListener("click", renderSchedules);
       $("select-all").addEventListener("click", () => {
         document.querySelectorAll(".entry-check").forEach((input) => { input.checked = true; });
       });
@@ -796,8 +921,23 @@
           $("format-preset").value = "audio";
         }
       });
+      $("collection").addEventListener("change", () => {
+        const value = $("collection").value;
+        if (value === "plex") {
+          $("relative-path").value = "youtube";
+          $("format-preset").value = "best";
+          $("archive-mode").value = "auto";
+        } else if (value === "shorts") {
+          $("relative-path").value = "raw";
+          $("format-preset").value = "1080p";
+          $("archive-mode").value = "auto";
+        } else {
+          $("relative-path").value = "yt_dlp_downloader";
+        }
+      });
 
       renderJobs();
+      renderSchedules();
       state.pollTimer = setInterval(renderJobs, 2500);
       window.addEventListener("beforeunload", () => clearInterval(state.pollTimer));
     })();
