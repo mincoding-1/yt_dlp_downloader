@@ -23,6 +23,7 @@ from core.plugin_logging import (
 ALLOWED_OUTPUT_ROOT = Path(os.getenv("HANIS_DOWNLOAD_ROOT", "/var/lib/hanis/downloads"))
 DEFAULT_COLLECTION = "custom"
 DEFAULT_RELATIVE_PATH = "yt_dlp_downloader"
+ALLOWED_COLLECTIONS = {"plex", "shorts", "custom"}
 YT_DLP_PATH = Path("/opt/hanis-tools/current/yt-dlp")
 MAX_STDIO_CHARS = 4000
 MAX_ERROR_CHARS = 1000
@@ -68,8 +69,9 @@ def _validate_url(value: str) -> str:
 
 def _validate_collection(value: str | None) -> str:
     collection = str(value or DEFAULT_COLLECTION).strip().lower()
-    if not COLLECTION_RE.fullmatch(collection):
-        raise PermanentError("collection must match ^[a-z0-9_-]{1,64}$")
+    if not COLLECTION_RE.fullmatch(collection) or collection not in ALLOWED_COLLECTIONS:
+        allowed = ", ".join(sorted(ALLOWED_COLLECTIONS))
+        raise PermanentError(f"collection must be one of: {allowed}")
     return collection
 
 

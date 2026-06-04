@@ -10,7 +10,7 @@
     {
       "key": "collection",
       "type": "string",
-      "label": "Collection",
+      "label": "Collection (plex, shorts, custom)",
       "required": false
     },
     {

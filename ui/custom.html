@@ -143,6 +143,14 @@
       gap: 10px;
     }
 
+    .preset-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 8px;
+      align-items: end;
+      margin-bottom: 10px;
+    }
+
     .advanced {
       margin-top: 10px;
       border-top: 1px solid var(--line);
@@ -368,6 +376,16 @@
           </div>
 
           <div class="advanced">
+            <div class="preset-row">
+              <label>
+                Preset
+                <select id="preset">
+                  <option value="">Manual settings</option>
+                </select>
+              </label>
+              <button id="save-preset" class="btn" type="button">Save Preset</button>
+              <button id="delete-preset" class="btn danger" type="button">Delete</button>
+            </div>
             <div class="grid-3">
               <label>
                 Collection
@@ -523,6 +541,7 @@
   <script>
     (() => {
       const plugin = "yt_dlp_downloader";
+      const presetStorageKey = "hanis.yt_dlp_downloader.presets.v1";
       const state = {
         metadata: null,
         entries: [],
@@ -589,6 +608,73 @@
         return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
           "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;"
         }[ch]));
+      }
+
+      function loadPresets() {
+        try {
+          const raw = localStorage.getItem(presetStorageKey);
+          const data = raw ? JSON.parse(raw) : [];
+          return Array.isArray(data) ? data.filter((item) => item && typeof item.name === "string") : [];
+        } catch {
+          return [];
+        }
+      }
+
+      function savePresets(presets) {
+        localStorage.setItem(presetStorageKey, JSON.stringify(presets));
+      }
+
+      function renderPresets(selectedName = "") {
+        const presets = loadPresets().sort((a, b) => a.name.localeCompare(b.name));
+        $("preset").innerHTML = '<option value="">Manual settings</option>' + presets.map((preset) =>
+          `<option value="${escapeHtml(preset.name)}">${escapeHtml(preset.name)}</option>`
+        ).join("");
+        $("preset").value = selectedName;
+      }
+
+      function applyPreset(preset) {
+        if (!preset) return;
+        $("collection").value = preset.collection || "custom";
+        $("relative-path").value = preset.relative_path || "yt_dlp_downloader";
+        $("format-preset").value = preset.format_preset || "best";
+        $("download-mode").value = preset.download_mode || "video";
+        $("archive-mode").value = preset.archive_mode || "auto";
+        $("output-template").value = preset.output_template || "%(uploader)s/%(title).200B [%(id)s].%(ext)s";
+        $("format-selector").value = preset.format_selector || "";
+      }
+
+      function currentPresetData(name) {
+        return {
+          name,
+          collection: $("collection").value,
+          relative_path: $("relative-path").value.trim(),
+          format_preset: $("format-preset").value,
+          download_mode: $("download-mode").value,
+          archive_mode: $("archive-mode").value,
+          output_template: $("output-template").value.trim(),
+          format_selector: $("format-selector").value.trim()
+        };
+      }
+
+      function saveCurrentPreset() {
+        const existingName = $("preset").value;
+        const typedName = prompt("Preset name", existingName || "");
+        const name = (typedName || "").trim();
+        if (!name) return;
+        const presets = loadPresets().filter((preset) => preset.name !== name);
+        presets.push(currentPresetData(name));
+        savePresets(presets);
+        renderPresets(name);
+        toast(`Preset saved: ${name}`);
+      }
+
+      function deleteCurrentPreset() {
+        const name = $("preset").value;
+        if (!name) return toast("Select a preset first.", true);
+        const presets = loadPresets().filter((preset) => preset.name !== name);
+        savePresets(presets);
+        renderPresets("");
+        toast(`Preset deleted: ${name}`);
       }
 
       function payloadBase() {
@@ -906,6 +992,14 @@
       $("create-schedule").addEventListener("click", createSchedule);
       $("refresh-jobs").addEventListener("click", renderJobs);
       $("refresh-schedules").addEventListener("click", renderSchedules);
+      $("preset").addEventListener("change", () => {
+        const name = $("preset").value;
+        if (!name) return;
+        const preset = loadPresets().find((item) => item.name === name);
+        applyPreset(preset);
+      });
+      $("save-preset").addEventListener("click", saveCurrentPreset);
+      $("delete-preset").addEventListener("click", deleteCurrentPreset);
       $("select-all").addEventListener("click", () => {
         document.querySelectorAll(".entry-check").forEach((input) => { input.checked = true; });
       });
@@ -936,6 +1030,7 @@
         }
       });
 
+      renderPresets();
       renderJobs();
       renderSchedules();
       state.pollTimer = setInterval(renderJobs, 2500);
